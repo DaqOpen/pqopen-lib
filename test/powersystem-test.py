@@ -109,7 +109,7 @@ class TestPowerSystemZcd(unittest.TestCase):
 
         # Check Frequency
         frequency, _ = self.power_system.output_channels["Freq"].read_data_by_acq_sidx(0, values.size)
-        self.assertIsNone(np.testing.assert_array_almost_equal(frequency[1:], expected_frequency, 2))
+        self.assertIsNone(np.testing.assert_array_almost_equal(frequency, expected_frequency, 2))
 
     def test_one_period_calc(self):
         t = np.linspace(0, 1, int(self.power_system._samplerate), endpoint=False)
@@ -124,7 +124,7 @@ class TestPowerSystemZcd(unittest.TestCase):
 
         # Check Voltage
         u_rms, _ = self.power_system.output_channels["U1_1p_rms"].read_data_by_acq_sidx(0, values.size)
-        self.assertIsNone(np.testing.assert_array_almost_equal(u_rms[1:], expected_u_rms, 3))
+        self.assertIsNone(np.testing.assert_array_almost_equal(u_rms, expected_u_rms, 3))
 
     def test_one_period_calc_fallback(self):
         t = np.linspace(0, 1, int(self.power_system._samplerate), endpoint=False)
@@ -160,9 +160,9 @@ class TestPowerSystemCalculation(unittest.TestCase):
         u_values = np.sqrt(2)*np.sin(2*np.pi*50*t)
         i_values = 2*np.sqrt(2)*np.sin(2*np.pi*50*t+60*np.pi/180) # cos_phi = 0.5
         
-        expected_u_rms = np.array(np.zeros(48)) + 1.0
-        expected_i_rms = np.array(np.zeros(48)) + 2.0
-        expected_p_avg = np.array(np.zeros(48)) + 1.0
+        expected_u_rms = np.array(np.zeros(47)) + 1.0
+        expected_i_rms = np.array(np.zeros(47)) + 2.0
+        expected_p_avg = np.array(np.zeros(47)) + 1.0
 
         self.u_channel.put_data(u_values)
         self.i_channel.put_data(i_values)
@@ -177,6 +177,38 @@ class TestPowerSystemCalculation(unittest.TestCase):
         # Check Power
         p_avg, _ = self.power_system.output_channels["P1_1p"].read_data_by_acq_sidx(0, u_values.size)
         self.assertIsNone(np.testing.assert_array_almost_equal(p_avg[1:], expected_p_avg, 3))
+
+    def test_multi_period_calc_single_phase(self):
+        t = np.linspace(0, 1, int(self.power_system._samplerate), endpoint=False)
+        u_values = np.sqrt(2)*np.sin(2*np.pi*50*t)
+        i_values = 2*np.sqrt(2)*np.sin(2*np.pi*50*t+60*np.pi/180) # cos_phi = 0.5
+        
+        expected_u_rms = np.array(np.zeros(4)) + 1.0
+        expected_i_rms = np.array(np.zeros(4)) + 2.0
+        expected_p_avg = np.array(np.zeros(4)) + 1.0
+        expected_sidx = np.arange(1,5) * 0.2 * self.power_system._samplerate + 0.02 * self.power_system._samplerate
+
+        self.power_system.enable_harmonic_calculation(10)
+        self.u_channel.put_data(u_values)
+        self.i_channel.put_data(i_values)
+        self.power_system.process()
+
+        # Check Voltage
+        u_rms, sidx = self.power_system.output_channels["U1_rms"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_allclose(sidx, expected_sidx, atol=1))
+        self.assertIsNone(np.testing.assert_allclose(u_rms, expected_u_rms, rtol=0.01))
+        u_h_rms, _ = self.power_system.output_channels["U1_H_rms"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_allclose(u_h_rms[:,1], expected_u_rms, rtol=0.01))
+        # Check Current
+        i_rms, sidx = self.power_system.output_channels["I1_rms"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_array_almost_equal(i_rms, expected_i_rms, 3))
+        i_h_rms, _ = self.power_system.output_channels["I1_H_rms"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_allclose(i_h_rms[:,1], expected_i_rms, rtol=0.01))
+        # Check Power
+        p_avg, sidx = self.power_system.output_channels["P1"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_array_almost_equal(p_avg, expected_p_avg, 3))
+
+    
 
 if __name__ == "__main__":
     unittest.main()

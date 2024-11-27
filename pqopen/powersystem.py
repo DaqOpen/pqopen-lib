@@ -25,6 +25,7 @@ import logging
 
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
 from pqopen.zcd import ZeroCrossDetector
+import pqopen.powerquality as pq
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ class PowerSystem(object):
                  zcd_threshold: float = 1.0,
                  zcd_minimum_freq: float = 10,
                  nominal_frequency: float = 50.0,
-                 nper = None):
+                 nper: int = 10):
         """
         Initializes a PowerSystem object.
 
@@ -66,7 +67,7 @@ class PowerSystem(object):
             zcd_threshold: Threshold for zero-crossing detection. Defaults to 1.0.
             zcd_minimum_freq: Minimum frequency for valid zero crossings. Defaults to 10.
             nominal_frequency: Nominal system frequency. Defaults to 50.0.
-            nper: Number of periods for calculations. Defaults to None.
+            nper: Number of periods for calculations. Defaults to 10.
         """
         
         self._zcd_channel = zcd_channel
@@ -136,14 +137,12 @@ class PowerSystem(object):
                     self.output_channels.update(tmp)
         self._calc_channels["one_period"]["power"]["freq"] = DataChannelBuffer('Freq', agg_type='mean', unit="Hz")
         if self._phases:
-            for agg_interval in phase._calc_channels:
-                self._calc_channels[agg_interval]["voltage"]["rms"] = DataChannelBuffer('U_1p_rms', agg_type='rms', unit="V")
-                if len(self._phases) == 3:
-                    self._calc_channels[agg_interval]["voltage"]["unbal_0"] = DataChannelBuffer('U_unbal_0', agg_type='mean', unit="%")
-                    self._calc_channels[agg_interval]["voltage"]["unbal_2"] = DataChannelBuffer('U_unbal_2', agg_type='mean', unit="%")
-                if "current" in phase._calc_channels[agg_interval]:
-                    self._calc_channels[agg_interval]["current"]["rms"] = DataChannelBuffer('I_1p_rms', agg_type='rms', unit="V")
-                    self._calc_channels[agg_interval]["power"]["p_avg"] = DataChannelBuffer('P', agg_type='mean', unit="W")
+            if len(self._phases) == 3:
+                self._calc_channels["multi_period"]["voltage"]["unbal_0"] = DataChannelBuffer('U_unbal_0', agg_type='mean', unit="%")
+                self._calc_channels["multi_period"]["voltage"]["unbal_2"] = DataChannelBuffer('U_unbal_2', agg_type='mean', unit="%")
+            if "current" in phase._calc_channels[agg_interval]:
+                self._calc_channels["one_period"]["power"]["p_avg"] = DataChannelBuffer('P_1p', agg_type='mean', unit="W")
+                self._calc_channels["multi_period"]["power"]["p_avg"] = DataChannelBuffer('P', agg_type='mean', unit="W")
 
             for agg_interval, phys_types in self._calc_channels.items():
                 for phys_type, calc_type in phys_types.items():
@@ -170,8 +169,13 @@ class PowerSystem(object):
                 continue
             self._zero_crossings.pop(0)
             self._zero_crossings.append(actual_zc)
-            # Process one period calculation
+            if self._zero_cross_counter <= 1:
+                continue
+            # Process one period calculation, start with second zc
             self._process_one_period(self._zero_crossings[-2], self._zero_crossings[-1])
+            if ((self._zero_cross_counter-1) % self.nper) == 0 and (self._zero_cross_counter > self.nper):
+                # Process multi-period
+                self._process_multi_period(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
         
         self._last_processed_sidx = stop_acq_sidx
 
@@ -202,6 +206,61 @@ class PowerSystem(object):
                     if phys_type == "p_avg":
                         p_avg = np.mean(u_values * i_values)
                         output_channel.put_data_single(period_stop_sidx, p_avg)
+
+    def _process_multi_period(self, start_sidx: int, stop_sidx: int):
+        """
+        Processes data for multi periods, calculating rms, harmonics
+
+        Parameters:
+            start_sidx: Start sample index of the interval.
+            stop_sidx: Stop sample index of the interval.
+        """
+        for phase in self._phases:
+            u_values = phase._u_channel.read_data_by_index(start_sidx, stop_sidx)
+            if self._features["harmonics"]:
+                data_fft_U = pq.resample_and_fft(u_values)
+                u_h_mag, u_h_phi = pq.calc_harmonics(data_fft_U, self.nper, self._features["harmonics"])
+                u_ih_mag = pq.calc_interharmonics(data_fft_U, self.nper, self._features["harmonics"])
+            for phys_type, output_channel in phase._calc_channels["multi_period"]["voltage"].items():
+                if phys_type == "trms":
+                    u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
+                    output_channel.put_data_single(stop_sidx, u_rms)
+                if phys_type == "fund_rms":
+                    output_channel.put_data_single(stop_sidx, u_h_mag[1])
+                if phys_type == "fund_phi":
+                    output_channel.put_data_single(stop_sidx, u_h_phi[1])
+                if phys_type == "harm_rms":
+                    output_channel.put_data_single(stop_sidx, u_h_mag)
+                if phys_type == "iharm_rms":
+                    output_channel.put_data_single(stop_sidx, u_ih_mag)
+                if phys_type == "thd":
+                    output_channel.put_data_single(stop_sidx, pq.calc_thd(u_h_mag))
+
+            if phase._i_channel:
+                i_values = phase._i_channel.read_data_by_index(start_sidx, stop_sidx)
+                if self._features["harmonics"]:
+                    data_fft_I = pq.resample_and_fft(i_values)
+                    i_h_mag, i_h_phi = pq.calc_harmonics(data_fft_I, self.nper, self._features["harmonics"])
+                    i_ih_mag = pq.calc_interharmonics(data_fft_I, self.nper, self._features["harmonics"])
+                for phys_type, output_channel in phase._calc_channels["multi_period"]["current"].items():
+                    if phys_type == "trms":
+                        i_rms = np.sqrt(np.mean(np.power(i_values, 2)))
+                        output_channel.put_data_single(stop_sidx, i_rms)
+                    if phys_type == "fund_rms":
+                        output_channel.put_data_single(stop_sidx, i_h_mag[1])
+                    if phys_type == "fund_phi":
+                        output_channel.put_data_single(stop_sidx, i_h_phi[1])
+                    if phys_type == "harm_rms":
+                        output_channel.put_data_single(stop_sidx, i_h_mag)
+                    if phys_type == "iharm_rms":
+                        output_channel.put_data_single(stop_sidx, i_ih_mag)
+                    if phys_type == "thd":
+                        output_channel.put_data_single(stop_sidx, pq.calc_thd(i_h_mag))
+                    
+                for phys_type, output_channel in phase._calc_channels["multi_period"]["power"].items():
+                    if phys_type == "p_avg":
+                        p_avg = np.mean(u_values * i_values)
+                        output_channel.put_data_single(stop_sidx, p_avg)
                 
 
     def _detect_zero_crossings(self, start_acq_sidx: int, stop_acq_sidx: int) -> List[int]:
@@ -291,26 +350,37 @@ class PowerPhase(object):
         self._calc_channels = {"half_period": {}, "one_period": {}, "one_period_ovlp": {}, "multi_period": {}}
         # Create Voltage Channels
         self._calc_channels["one_period"]["voltage"] = {}
+        self._calc_channels["multi_period"]["voltage"] = {}
         self._calc_channels["one_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_rms'.format(self.name), agg_type='rms', unit="V")
-        self._calc_channels["one_period"]["voltage"]["fund_rms"] = DataChannelBuffer('U{:s}_H1_rms'.format(self.name), agg_type='rms', unit="V")
+        self._calc_channels["multi_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_rms'.format(self.name), agg_type='rms', unit="V")
 
         if "harmonics" in features and features["harmonics"]:
-            self._calc_channels["multi_period"]["voltage"] = {}
-            self._calc_channels["multi_period"]["voltage"]["harm_rms"] = DataChannelBuffer('U{:s}_H_rms'.format(self.name), sample_dimension=features["harmonics"], agg_type='rms', unit="V")
+            self._calc_channels["multi_period"]["voltage"]["fund_rms"] = DataChannelBuffer('U{:s}_H1_rms'.format(self.name), agg_type='rms', unit="V")
+            self._calc_channels["multi_period"]["voltage"]["fund_phi"] = DataChannelBuffer('U{:s}_H1_phi'.format(self.name), agg_type='phi', unit="°")
+            self._calc_channels["multi_period"]["voltage"]["harm_rms"] = DataChannelBuffer('U{:s}_H_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="V")
+            self._calc_channels["multi_period"]["voltage"]["iharm_rms"] = DataChannelBuffer('U{:s}_IH_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="V")
+            self._calc_channels["multi_period"]["voltage"]["thd"] = DataChannelBuffer('U{:s}_THD'.format(self.name), unit="%")
 
         # Create Current Channels
         if self._i_channel:
             self._calc_channels["one_period"]["current"] = {}
+            self._calc_channels["multi_period"]["current"] = {}
             self._calc_channels["one_period"]["current"]["trms"] = DataChannelBuffer('I{:s}_1p_rms'.format(self.name), agg_type='rms', unit="A")
-            self._calc_channels["one_period"]["current"]["fund_rms"] = DataChannelBuffer('I{:s}_1p_H1_rms'.format(self.name), agg_type='rms', unit="A")
+            self._calc_channels["multi_period"]["current"]["trms"] = DataChannelBuffer('I{:s}_rms'.format(self.name), agg_type='rms', unit="A")
 
             if "harmonics" in features and features["harmonics"]:
-                self._calc_channels["multi_period"]["current"] = {}
-                self._calc_channels["multi_period"]["current"]["harm_rms"] = DataChannelBuffer('I{:s}_H_rms'.format(self.name), sample_dimension=features["harmonics"], agg_type='rms', unit="A")
+                self._calc_channels["multi_period"]["current"]["fund_rms"] = DataChannelBuffer('I{:s}_H1_rms'.format(self.name), agg_type='rms', unit="A")
+                self._calc_channels["multi_period"]["current"]["fund_phi"] = DataChannelBuffer('I{:s}_H1_phi'.format(self.name), agg_type='phi', unit="°")
+                self._calc_channels["multi_period"]["current"]["harm_rms"] = DataChannelBuffer('I{:s}_H_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="A")
+                self._calc_channels["multi_period"]["current"]["iharm_rms"] = DataChannelBuffer('I{:s}_IH_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="A")
+                self._calc_channels["multi_period"]["current"]["thd"] = DataChannelBuffer('I{:s}_THD'.format(self.name), unit="%")
 
             # Create Power Channels
             self._calc_channels["one_period"]["power"] = {}
+            self._calc_channels["multi_period"]["power"] = {}
             self._calc_channels["one_period"]["power"]['p_avg'] = DataChannelBuffer('P{:s}_1p'.format(self.name), agg_type='mean', unit="W")
-            self._calc_channels["one_period"]["power"]['p_fund_mag'] = DataChannelBuffer('P{:s}_1p_H1'.format(self.name), agg_type='mean', unit="W")
             self._calc_channels["one_period"]["power"]['q_avg'] = DataChannelBuffer('Q{:s}_1p'.format(self.name), agg_type='mean', unit="var")
-            self._calc_channels["one_period"]["power"]['q_fund_mag'] = DataChannelBuffer('Q{:s}_1p_H1'.format(self.name), agg_type='mean', unit="var")
+            self._calc_channels["multi_period"]["power"]['p_avg'] = DataChannelBuffer('P{:s}'.format(self.name), agg_type='mean', unit="W")
+            self._calc_channels["multi_period"]["power"]['q_avg'] = DataChannelBuffer('Q{:s}'.format(self.name), agg_type='mean', unit="var")
+            self._calc_channels["multi_period"]["power"]['p_fund_mag'] = DataChannelBuffer('P{:s}_H1'.format(self.name), agg_type='mean', unit="W")
+            self._calc_channels["multi_period"]["power"]['q_fund_mag'] = DataChannelBuffer('Q{:s}_H1'.format(self.name), agg_type='mean', unit="var")

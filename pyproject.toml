@@ -15,7 +15,8 @@ name = "pqopen-lib"
 version = "0.1.0"
 dependencies = [
     "numpy",
-    "daqopen-lib"
+    "daqopen-lib",
+    "scipy"
 ]
 authors = [
   { name="Michael Oberhofer", email="info@pqopen.com" },
