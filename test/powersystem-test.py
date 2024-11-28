@@ -2,6 +2,7 @@ import unittest
 import os
 import sys
 import numpy as np
+import datetime
 from unittest.mock import MagicMock
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,8 +20,7 @@ class TestPowerSystemChannelConfig(unittest.TestCase):
         # Create PowerSystem instance
         self.power_system = PowerSystem(
             zcd_channel=self.mock_acq_buffer,
-            input_samplerate=1000.0,
-            time_channel=self.mock_time_channel
+            input_samplerate=1000.0
         )
 
     def test_initialization(self):
@@ -208,6 +208,34 @@ class TestPowerSystemCalculation(unittest.TestCase):
         p_avg, sidx = self.power_system.output_channels["P1"].read_data_by_acq_sidx(0, u_values.size)
         self.assertIsNone(np.testing.assert_array_almost_equal(p_avg, expected_p_avg, 3))
 
+class TestPowerSystemNperSync(unittest.TestCase):
+    def setUp(self):
+        self.u_channel = AcqBuffer()
+        self.i_channel = AcqBuffer()
+        self.time_channel = AcqBuffer(dtype=np.int64)
+
+        # Create PowerSystem instance
+        self.power_system = PowerSystem(
+            zcd_channel=self.u_channel,
+            input_samplerate=1000.0,
+            zcd_threshold=0.1
+        )
+        # Add Phase
+        self.power_system.add_phase(u_channel=self.u_channel, i_channel=self.i_channel)
+        self.power_system.enable_nper_abs_time_sync(self.time_channel, interval_sec=10)
+
+    def test_short_interval(self):
+        abs_ts_start = datetime.datetime(2024,1,1,0,0,5, tzinfo=datetime.UTC).timestamp()
+        t = np.linspace(0, 21, int(self.power_system._samplerate)*21, endpoint=False)
+        u_values = np.sqrt(2)*np.sin(2*np.pi*50*t)
+        i_values = 2*np.sqrt(2)*np.sin(2*np.pi*50*t+60*np.pi/180) # cos_phi = 0.5
+        self.u_channel.put_data(u_values)
+        self.i_channel.put_data(i_values)
+        self.time_channel.put_data((t+abs_ts_start)*1e6)
+        self.power_system.process()
+
+        u_rms, sidx = self.power_system.output_channels["U1_rms"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertAlmostEqual(sidx[5*5],5.2*self.power_system._samplerate, places=-1)
     
 
 if __name__ == "__main__":

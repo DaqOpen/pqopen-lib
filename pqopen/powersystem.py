@@ -26,6 +26,7 @@ import logging
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
 from pqopen.zcd import ZeroCrossDetector
 import pqopen.powerquality as pq
+from pqopen.helper import floor_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,6 @@ class PowerSystem(object):
     def __init__(self, 
                  zcd_channel: AcqBuffer, 
                  input_samplerate: float,
-                 time_channel: AcqBuffer = None,
                  zcd_cutoff_freq: float = 50.0,
                  zcd_threshold: float = 1.0,
                  zcd_minimum_freq: float = 10,
@@ -62,7 +62,6 @@ class PowerSystem(object):
         Parameters:
             zcd_channel: Channel buffer for zero-crossing detection.
             input_samplerate: Sampling rate of the input signal.
-            time_channel: Optional time channel buffer.
             zcd_cutoff_freq: Cutoff frequency for zero-crossing detection. Defaults to 50.0.
             zcd_threshold: Threshold for zero-crossing detection. Defaults to 1.0.
             zcd_minimum_freq: Minimum frequency for valid zero crossings. Defaults to 10.
@@ -72,7 +71,6 @@ class PowerSystem(object):
         
         self._zcd_channel = zcd_channel
         self._samplerate = input_samplerate
-        self._time_channel = time_channel
         self._zcd_cutoff_freq = zcd_cutoff_freq
         self._zcd_threshold = zcd_threshold
         self._zcd_minimum_frequency = zcd_minimum_freq
@@ -80,7 +78,8 @@ class PowerSystem(object):
         self.nper = nper
         self._phases: List[PowerPhase] = []
         self._features = {"harmonics": 0, 
-                          "fluctuation": False}
+                          "fluctuation": False,
+                          "nper_abs_time_sync": False}
         self._prepare_calc_channels()
         self.output_channels = {}
         self._last_processed_sidx = 0
@@ -127,6 +126,39 @@ class PowerSystem(object):
         self._features["fluctuation"] = True
         self._update_calc_channels()
 
+    def enable_nper_abs_time_sync(self, time_channel: AcqBuffer, interval_sec: int = 600):
+        """
+        Enables synchronisation of multi-period calculation to absolute rounded timestamp.
+        Complies to IEC 61000-4-30 overlapping
+
+        Parameters:
+            time_channel: Channel buffer for time information
+            interval_sec: Resync interval in seconds
+        """
+        self._features["nper_abs_time_sync"] = True
+        self._time_channel = time_channel
+        self._resync_interval_sec = interval_sec
+        self._next_round_ts = 0
+
+    def _resync_nper_abs_time(self, zc_idx: int):
+        if not self._features["nper_abs_time_sync"]:
+            return None
+        last_zc_ts = self._time_channel.read_data_by_index(self._zero_crossings[zc_idx], self._zero_crossings[zc_idx]+1)[0]
+        if self._next_round_ts == 0:
+            self._next_round_ts = int(floor_timestamp(last_zc_ts, self._resync_interval_sec, ts_resolution="us")+self._resync_interval_sec*1e6)
+        if last_zc_ts > self._next_round_ts:
+            logger.debug("Passed rounded timestamp - resync")
+            last_nper_ts = self._time_channel.read_data_by_index(self._zero_crossings[zc_idx-self.nper], self._zero_crossings[zc_idx])
+            next_round_sidx = self._zero_crossings[zc_idx-self.nper] + np.searchsorted(last_nper_ts, self._next_round_ts)
+            # Forward Zero-Cross counter to comply to overlap according to IEC 61000-4-30
+            back_idx = -1
+            self._zero_cross_counter -= 1 # Rewind one zc back
+            while self._zero_crossings[back_idx+1+zc_idx] > next_round_sidx:
+                self._zero_cross_counter += 1 # Forward zc count
+                back_idx -= 1
+            logger.debug(f"Rewind index: {back_idx:d}, {self._zero_crossings[zc_idx]:d}, {self._zero_crossings[back_idx]:d}, next_round_sample_idx: {next_round_sidx:d}")
+            self._next_round_ts = int(floor_timestamp(last_zc_ts, self._resync_interval_sec, ts_resolution="us")+self._resync_interval_sec*1e6)
+        
     def _update_calc_channels(self):
         self.output_channels = {}
         for phase in self._phases:
@@ -176,6 +208,7 @@ class PowerSystem(object):
             if ((self._zero_cross_counter-1) % self.nper) == 0 and (self._zero_cross_counter > self.nper):
                 # Process multi-period
                 self._process_multi_period(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
+                self._resync_nper_abs_time(-1)
         
         self._last_processed_sidx = stop_acq_sidx
 
