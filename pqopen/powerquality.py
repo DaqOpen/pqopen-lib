@@ -3,7 +3,7 @@
 import numpy as np
 from typing import Tuple
 
-def calc_harmonics(fft_data, num_periods=10, num_harmonics=100) -> Tuple[np.ndarray, np.ndarray]:
+def calc_harmonics(fft_data: np.ndarray, num_periods: int=10, num_harmonics: int=100) -> Tuple[np.ndarray, np.ndarray]:
     """
     Calculate harmonic rms and phase for a given FFT dataset.
     Grouping according to IEC 61000-4-7
@@ -25,7 +25,7 @@ def calc_harmonics(fft_data, num_periods=10, num_harmonics=100) -> Tuple[np.ndar
     harm_phi = np.angle(fft_data[0:num_harmonics*num_periods+1:num_periods], deg=True)
     return harm_rms, harm_phi
 
-def calc_interharmonics(fft_data, num_periods=10, num_iharmonics=100) -> np.ndarray:
+def calc_interharmonics(fft_data: np.ndarray, num_periods: int=10, num_iharmonics: int=100) -> np.ndarray:
     """
     Calculate interharmonic rms for a given FFT dataset.
     Grouping according to IEC 61000-4-7
@@ -42,7 +42,7 @@ def calc_interharmonics(fft_data, num_periods=10, num_iharmonics=100) -> np.ndar
     iharm_rms = np.sqrt(np.sum(np.power(reshaped_data[:,2:9], 2), axis=1))
     return iharm_rms
 
-def calc_thd(harm_rms: np.ndarray, max_harmonic: int = 40, min_harmonic: int = 2, fund_rms: float = None):
+def calc_thd(harm_rms: np.ndarray, max_harmonic: int = 40, min_harmonic: int = 2, fund_rms: float = None) -> float:
     """
     Calculate the Total Harmonic Distortion (THD).
 
@@ -61,7 +61,7 @@ def calc_thd(harm_rms: np.ndarray, max_harmonic: int = 40, min_harmonic: int = 2
         thd = np.sqrt(np.sum(np.power(harm_rms[min_harmonic:max_harmonic+1]/fund_rms, 2)))*100
     return thd
 
-def resample_and_fft(data: np.ndarray, resample_size: int = None):
+def resample_and_fft(data: np.ndarray, resample_size: int = None) -> np.ndarray:
     """
     Resample the input data to a specified size and compute its FFT.
 

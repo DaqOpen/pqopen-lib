@@ -52,7 +52,7 @@ class ZeroCrossDetector:
         self.filter_delay_samples = np.angle(h)[0] / (2 * np.pi) * self.samplerate / self.f_cutoff
         self.filtered_data = []
 
-    def process(self, data: np.ndarray):
+    def process(self, data: np.ndarray)-> list:
         """
         Processes a block of input data and detect zero-crossings.
 
