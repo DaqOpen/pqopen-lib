@@ -248,6 +248,7 @@ class PowerSystem(object):
             start_sidx: Start sample index of the interval.
             stop_sidx: Stop sample index of the interval.
         """
+        phi_ref = 0.0
         for phase in self._phases:
             u_values = phase._u_channel.read_data_by_index(start_sidx, stop_sidx)
             if self._features["harmonics"]:
@@ -261,7 +262,9 @@ class PowerSystem(object):
                 if phys_type == "fund_rms":
                     output_channel.put_data_single(stop_sidx, u_h_mag[1])
                 if phys_type == "fund_phi":
-                    output_channel.put_data_single(stop_sidx, u_h_phi[1])
+                    if phase._number == 1:
+                        phi_ref = u_h_phi[1]
+                    output_channel.put_data_single(stop_sidx, pq.normalize_phi(u_h_phi[1]-phi_ref))
                 if phys_type == "harm_rms":
                     output_channel.put_data_single(stop_sidx, u_h_mag)
                 if phys_type == "iharm_rms":
@@ -282,7 +285,7 @@ class PowerSystem(object):
                     if phys_type == "fund_rms":
                         output_channel.put_data_single(stop_sidx, i_h_mag[1])
                     if phys_type == "fund_phi":
-                        output_channel.put_data_single(stop_sidx, i_h_phi[1])
+                        output_channel.put_data_single(stop_sidx, i_h_phi[1] - phi_ref)
                     if phys_type == "harm_rms":
                         output_channel.put_data_single(stop_sidx, i_h_mag)
                     if phys_type == "iharm_rms":
