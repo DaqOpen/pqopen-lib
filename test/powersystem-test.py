@@ -265,7 +265,7 @@ class TestPowerSystemFluctuation(unittest.TestCase):
             self.time_channel.put_data((t[blk_idx*blocksize:(blk_idx+1)*blocksize]+abs_ts_start)*1e6)
             self.power_system.process()
         self.assertAlmostEqual(self.power_system.output_channels["U1_pst"].last_sample_value, 0, places=1)
-        self.assertEqual(self.power_system.output_channels["U1_pst"].last_sample_acq_sidx, np.round(self.power_system._samplerate*61))
+        self.assertEqual(self.power_system.output_channels["U1_pst"].last_sample_acq_sidx, np.round(self.power_system._samplerate*(61+0.0201)))
 
 def test_steady_state_600s(self):
         self.power_system.enable_fluctuation_calculation(nominal_voltage=230, pst_interval_sec=600)

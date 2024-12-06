@@ -341,18 +341,16 @@ class PowerSystem(object):
         # Calculate Pst and forward next timestamps due to interval
         if (stop_ts > self._pst_next_round_ts):
             logger.debug("Calculating Pst")
-            ts_between_start_stop = self._time_channel.read_data_by_index(start_sidx, stop_sidx)
-            calc_stop_sidx = start_sidx + np.searchsorted(ts_between_start_stop, self._pst_next_round_ts)
             if self._pst_last_calc_sidx == 0:
                 logger.debug("Calculating Pst - ignoring non full intervall")
-                self._pst_last_calc_sidx = calc_stop_sidx
+                self._pst_last_calc_sidx = stop_sidx
                 self._pst_next_round_ts = self._pst_next_round_ts + self._pst_interval_sec*1_000_000
                 return None
-            logger.debug(f"Calculate Pst between sidx {self._pst_last_calc_sidx:d} and {calc_stop_sidx:d}")
+            logger.debug(f"Calculate Pst between sidx {self._pst_last_calc_sidx:d} and {stop_sidx:d}")
             for phase in self._phases:
-                pst = phase._voltage_fluctuation_processor.calc_pst(self._pst_last_calc_sidx, calc_stop_sidx)
-                phase._calc_channels["multi_period"]["voltage"]["pst"].put_data_single(calc_stop_sidx, pst)
-            self._pst_last_calc_sidx = calc_stop_sidx
+                pst = phase._voltage_fluctuation_processor.calc_pst(self._pst_last_calc_sidx, stop_sidx)
+                phase._calc_channels["multi_period"]["voltage"]["pst"].put_data_single(stop_sidx, pst)
+            self._pst_last_calc_sidx = stop_sidx
             self._pst_next_round_ts = floor_timestamp(stop_ts, self._pst_interval_sec, ts_resolution="us")+self._pst_interval_sec*1_000_000
 
     def _detect_zero_crossings(self, start_acq_sidx: int, stop_acq_sidx: int) -> List[int]:
