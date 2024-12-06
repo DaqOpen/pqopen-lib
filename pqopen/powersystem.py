@@ -161,7 +161,7 @@ class PowerSystem(object):
                 self._zero_cross_counter += 1 # Forward zc count
                 back_idx -= 1
             logger.debug(f"Rewind index: {back_idx:d}, {self._zero_crossings[zc_idx]:d}, {self._zero_crossings[back_idx]:d}, next_round_sample_idx: {next_round_sidx:d}")
-            self._next_round_ts = floor_timestamp(last_zc_ts, self._resync_interval_sec, ts_resolution="us"+self._resync_interval_sec*1_000_000)
+            self._next_round_ts = floor_timestamp(last_zc_ts, self._resync_interval_sec, ts_resolution="us")+self._resync_interval_sec*1_000_000
         
     def _update_calc_channels(self):
         self.output_channels = {}
