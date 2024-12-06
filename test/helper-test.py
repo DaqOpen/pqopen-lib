@@ -50,6 +50,10 @@ class TestFloorTimestamp(unittest.TestCase):
         floored_ts = floor_timestamp(ts_us, interval, ts_resolution="us")
         self.assertEqual(floored_ts, expected_floor_ts*1_000_000)
 
+        ts_us = 1_733_505_000_010_123
+        next_round_ts_us = int(floor_timestamp(ts_us, 600, ts_resolution="us")+600*1e6)
+        self.assertEqual(next_round_ts_us, 1_733_505_600_000_000)
+        
 
 if __name__ == '__main__':
     unittest.main()

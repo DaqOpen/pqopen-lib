@@ -147,9 +147,9 @@ class PowerSystem(object):
     def _resync_nper_abs_time(self, zc_idx: int):
         if not self._features["nper_abs_time_sync"]:
             return None
-        last_zc_ts = self._time_channel.read_data_by_index(self._zero_crossings[zc_idx], self._zero_crossings[zc_idx]+1)[0]
+        last_zc_ts = int(self._time_channel.read_data_by_index(self._zero_crossings[zc_idx], self._zero_crossings[zc_idx]+1)[0])
         if self._next_round_ts == 0:
-            self._next_round_ts = int(floor_timestamp(last_zc_ts, self._resync_interval_sec, ts_resolution="us")+self._resync_interval_sec*1e6)
+            self._next_round_ts = int(floor_timestamp(last_zc_ts, self._resync_interval_sec, ts_resolution="us")+self._resync_interval_sec*1_000_000)
         if last_zc_ts > self._next_round_ts:
             logger.debug("Passed rounded timestamp - resync")
             last_nper_ts = self._time_channel.read_data_by_index(self._zero_crossings[zc_idx-self.nper], self._zero_crossings[zc_idx])
@@ -161,7 +161,7 @@ class PowerSystem(object):
                 self._zero_cross_counter += 1 # Forward zc count
                 back_idx -= 1
             logger.debug(f"Rewind index: {back_idx:d}, {self._zero_crossings[zc_idx]:d}, {self._zero_crossings[back_idx]:d}, next_round_sample_idx: {next_round_sidx:d}")
-            self._next_round_ts = int(floor_timestamp(last_zc_ts, self._resync_interval_sec, ts_resolution="us")+self._resync_interval_sec*1e6)
+            self._next_round_ts = floor_timestamp(last_zc_ts, self._resync_interval_sec, ts_resolution="us"+self._resync_interval_sec*1_000_000)
         
     def _update_calc_channels(self):
         self.output_channels = {}
@@ -335,9 +335,9 @@ class PowerSystem(object):
             u_raw = phase._u_channel.read_data_by_index(start_sidx, stop_sidx)
             u_hp_rms, _ = phase._calc_channels["half_period"]["voltage"]["trms"].read_data_by_acq_sidx(start_sidx, stop_sidx)
             phase._voltage_fluctuation_processor.process(start_sidx, u_hp_rms, u_raw)
-        stop_ts = self._time_channel.read_data_by_index(stop_sidx, stop_sidx+1)[0]
+        stop_ts = int(self._time_channel.read_data_by_index(stop_sidx, stop_sidx+1)[0])
         if self._pst_next_round_ts == 0:
-            self._pst_next_round_ts = int(floor_timestamp(stop_ts, self._pst_interval_sec, ts_resolution="us")+self._pst_interval_sec*1e6)
+            self._pst_next_round_ts = floor_timestamp(stop_ts, self._pst_interval_sec, ts_resolution="us")+self._pst_interval_sec*1_000_000
         # Calculate Pst and forward next timestamps due to interval
         if (stop_ts > self._pst_next_round_ts):
             logger.debug("Calculating Pst")
@@ -351,7 +351,7 @@ class PowerSystem(object):
                 pst = phase._voltage_fluctuation_processor.calc_pst(self._pst_last_calc_sidx, calc_stop_sidx)
                 phase._calc_channels["multi_period"]["voltage"]["pst"].put_data_single(calc_stop_sidx, pst)
             self._pst_last_calc_sidx = calc_stop_sidx
-            self._pst_next_round_ts = int(floor_timestamp(stop_ts, self._pst_interval_sec, ts_resolution="us")+self._pst_interval_sec*1e6)
+            self._pst_next_round_ts = floor_timestamp(stop_ts, self._pst_interval_sec, ts_resolution="us")+self._pst_interval_sec*1_000_000
 
     def _detect_zero_crossings(self, start_acq_sidx: int, stop_acq_sidx: int) -> List[int]:
         """

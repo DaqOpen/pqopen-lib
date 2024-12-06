@@ -10,6 +10,10 @@ def floor_timestamp(timestamp: float | int, interval_seconds: int, ts_resolution
         conversion_factor = 1_000_000.0
     else:
         raise NotImplementedError(f"Time interval {ts_resolution} not implemented")
-    seconds = timestamp / conversion_factor
-    floored_seconds = seconds - (seconds % interval_seconds)
-    return floored_seconds * conversion_factor
+    if isinstance(timestamp, float):
+        seconds = timestamp / conversion_factor
+        floored_seconds = seconds - (seconds % interval_seconds)
+        return floored_seconds * conversion_factor
+    else:
+        fraction = timestamp % int(conversion_factor*interval_seconds)
+        return timestamp - fraction
