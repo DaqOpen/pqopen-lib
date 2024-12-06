@@ -118,6 +118,7 @@ class StoragePlan(object):
 class StorageController(object):
     """Manages multiple storage plans and processes data for storage."""
 
+    STORAGE_DELAY_SECONDS = 1
     DATA_SERIES_PACKET_TIME = int(5e6)
 
     def __init__(self, time_channel: AcqBuffer, sample_rate: float):
@@ -146,7 +147,7 @@ class StorageController(object):
         Processes data for all storage plans based on the current acquisition state.
         """
         start_acq_sidx = self._last_processed_sidx
-        stop_acq_sidx = self.time_channel.sample_count
+        stop_acq_sidx = self.time_channel.sample_count - int(self.STORAGE_DELAY_SECONDS*self.sample_rate)
         if stop_acq_sidx <= 0:
             return None
 
