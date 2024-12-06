@@ -341,12 +341,12 @@ class PowerSystem(object):
         # Calculate Pst and forward next timestamps due to interval
         if (stop_ts > self._pst_next_round_ts):
             logger.debug("Calculating Pst")
-            if self._pst_last_calc_sidx == 0:
-                self._pst_last_calc_sidx = self._pst_next_round_ts
-                self._pst_next_round_ts = self._pst_next_round_ts + self._pst_interval_sec*1_000_000
-                return None
             ts_between_start_stop = self._time_channel.read_data_by_index(start_sidx, stop_sidx)
             calc_stop_sidx = start_sidx + np.searchsorted(ts_between_start_stop, self._pst_next_round_ts)
+            if self._pst_last_calc_sidx == 0:
+                self._pst_last_calc_sidx = calc_stop_sidx
+                self._pst_next_round_ts = self._pst_next_round_ts + self._pst_interval_sec*1_000_000
+                return None
             for phase in self._phases:
                 pst = phase._voltage_fluctuation_processor.calc_pst(self._pst_last_calc_sidx, calc_stop_sidx)
                 phase._calc_channels["multi_period"]["voltage"]["pst"].put_data_single(calc_stop_sidx, pst)
