@@ -3,6 +3,7 @@
 import numpy as np
 from scipy import signal
 from typing import Tuple
+from daqopen.channelbuffer import DataChannelBuffer
 
 def calc_harmonics(fft_data: np.ndarray, num_periods: int=10, num_harmonics: int=100) -> Tuple[np.ndarray, np.ndarray]:
     """
@@ -97,18 +98,18 @@ def normalize_phi(phi: float) -> float:
     return phi
 
 class VoltageFluctuation(object):
-    CALC_SAMPLERATE_DECIMATION = 10
     OUTPUT_SAMPLERATE_DECIMATION = 5
+    WANTED_DECIMATED_SAMPLERATE = 5000
     CALIBRATION_FACTOR = 309602.0
 
-    def __init__(self, samplerate, nominal_volt: float = 230, nominal_freq: float = 50):
+    def __init__(self, samplerate: float, nominal_volt: float = 230, nominal_freq: float = 50):
         self._samplerate = samplerate
-        self._decimated_samplerate = self._samplerate/self.CALC_SAMPLERATE_DECIMATION
+        self._calc_samplerate_decimation = max(1, int(self._samplerate / self.WANTED_DECIMATED_SAMPLERATE))
+        self._decimated_samplerate = self._samplerate/self._calc_samplerate_decimation
         self._nominal_freq = nominal_freq
         self._nominal_volt = nominal_volt
         self._init_filter()
-        self._pinst_buf = np.zeros(int(1e6))
-        self._pinst_buf_idx = 0
+        self._pinst_channel = DataChannelBuffer("Pinst", size=int(1_000*self._decimated_samplerate/self.OUTPUT_SAMPLERATE_DECIMATION))
         self.steady_state = False
         self.processed_samples = 0
         self._perc_names = [0.1, 0.7, 1, 1.5, 2.2, 3, 4, 6, 8, 10, 13, 17, 30, 50, 80]
@@ -145,7 +146,7 @@ class VoltageFluctuation(object):
         self.stage4_tp_filter_coeff = signal.iirfilter(1, stage4_tp_norm_cutoff, btype='lowpass', ftype='butter')
         self.stage4_tp_filter_zi = np.zeros(len(self.stage4_tp_filter_coeff[0])-1)
     
-    def process(self, hp_data: np.ndarray, raw_data: np.ndarray):
+    def process(self, start_sidx: int, hp_data: np.ndarray, raw_data: np.ndarray):
         """
         """
         stage0_tp_filtered_data,_ = signal.lfilter(self.stage0_tp_filter_coeff[0], self.stage0_tp_filter_coeff[1], raw_data, zi=self.stage0_tp_filter_zi)
@@ -154,12 +155,12 @@ class VoltageFluctuation(object):
                                                   stage0_tp_filtered_data[-3:][::-1],
                                                   raw_data[-3:][::-1])
         
-        samples_skip_next_start = len(stage0_tp_filtered_data) % self.CALC_SAMPLERATE_DECIMATION
-        stage0_tp_filtered_data = stage0_tp_filtered_data[self._next_reduction_start_idx::self.CALC_SAMPLERATE_DECIMATION]
+        samples_skip_next_start = len(stage0_tp_filtered_data) % self._calc_samplerate_decimation
+        stage0_tp_filtered_data = stage0_tp_filtered_data[self._next_reduction_start_idx::self._calc_samplerate_decimation]
         if samples_skip_next_start:
-            self._next_reduction_start_idx += self.CALC_SAMPLERATE_DECIMATION - samples_skip_next_start
-            if self._next_reduction_start_idx >= self.CALC_SAMPLERATE_DECIMATION:
-                self._next_reduction_start_idx %= self.CALC_SAMPLERATE_DECIMATION
+            self._next_reduction_start_idx += self._calc_samplerate_decimation - samples_skip_next_start
+            if self._next_reduction_start_idx >= self._calc_samplerate_decimation:
+                self._next_reduction_start_idx %= self._calc_samplerate_decimation
         stage1_tp_filtered_data,_ = signal.lfilter(self.stage1_tp_filter_coeff[0], self.stage1_tp_filter_coeff[1], hp_data, zi=self.stage1_tp_filter_zi)
         self.stage1_tp_filter_zi = signal.lfiltic(self.stage1_tp_filter_coeff[0], 
                                                   self.stage1_tp_filter_coeff[1], 
@@ -199,21 +200,22 @@ class VoltageFluctuation(object):
         if self.steady_state:
             data_to_buffer = (stage4_tp_filtered_data*self.CALIBRATION_FACTOR)[::self.OUTPUT_SAMPLERATE_DECIMATION]
             try:
-                self._pinst_buf[self._pinst_buf_idx:self._pinst_buf_idx+len(data_to_buffer)] = data_to_buffer
-                self._pinst_buf_idx += len(data_to_buffer)
+                output_sidx = np.linspace(start=start_sidx, 
+                                          stop=start_sidx + raw_data.size, 
+                                          num=len(data_to_buffer),
+                                          endpoint=False)
+                self._pinst_channel.put_data_multi(output_sidx, data_to_buffer)
             except:
                 pass
         
-    def calc_pst(self):
+    def calc_pst(self, start_sidx: int, stop_sidx: int):
         if not self.steady_state:
             return None
-        perc = np.percentile(self._pinst_buf[:self._pinst_buf_idx+1], self._percentiles)
+        perc = np.percentile(self._pinst_channel.read_data_by_acq_sidx(start_sidx, stop_sidx)[0], self._percentiles)
         P = {str(self._perc_names[idx]): perc[idx] for idx in range(len(perc))}
         P50s = (P['30'] + P['50'] + P['80'])/3
         P10s = (P['6'] + P['8'] + P['10'] + P['13'] + P['17'])/5
         P3s = (P['2.2'] + P['3'] + P['4'])/3
         P1s = (P['0.7'] + P['1'] + P['1.5'])/3
         Pst = np.sqrt(0.0314*P['0.1'] + 0.0525*P1s + 0.0657*P3s + 0.28*P10s + 0.08*P50s)
-        self._pinst_buf*=0
-        self._pinst_buf_idx = 0
         return Pst

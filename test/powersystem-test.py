@@ -237,6 +237,36 @@ class TestPowerSystemNperSync(unittest.TestCase):
         u_rms, sidx = self.power_system.output_channels["U1_rms"].read_data_by_acq_sidx(0, u_values.size)
         self.assertAlmostEqual(sidx[5*5],5.2*self.power_system._samplerate, places=-1)
     
+class TestPowerSystemFluctuation(unittest.TestCase):
+    def setUp(self):
+        self.u_channel = AcqBuffer()
+        self.time_channel = AcqBuffer(dtype=np.int64)
+
+        # Create PowerSystem instance
+        self.power_system = PowerSystem(
+            zcd_channel=self.u_channel,
+            input_samplerate=5000.0,
+            zcd_threshold=0.1
+        )
+        # Add Phase
+        self.power_system.add_phase(u_channel=self.u_channel)
+        self.power_system.enable_harmonic_calculation(num_harmonics=1)
+        self.power_system.enable_nper_abs_time_sync(self.time_channel)
+        self.power_system.enable_fluctuation_calculation(nominal_voltage=230, pst_interval_sec=60)
+
+    def test_steady_state(self):
+        abs_ts_start = datetime.datetime(2024,1,1,0,0,59, tzinfo=datetime.UTC).timestamp()
+        t = np.linspace(0, 81, int(self.power_system._samplerate)*81, endpoint=False)
+        u_values = 230*np.sqrt(2)*np.sin(2*np.pi*50*t)
+
+        blocksize = 1000
+        for blk_idx in range(t.size // blocksize):
+            self.u_channel.put_data(u_values[blk_idx*blocksize:(blk_idx+1)*blocksize])
+            self.time_channel.put_data((t[blk_idx*blocksize:(blk_idx+1)*blocksize]+abs_ts_start)*1e6)
+            self.power_system.process()
+        self.assertAlmostEqual(self.power_system.output_channels["U1_pst"].last_sample_value, 0, places=1)
+        self.assertEqual(self.power_system.output_channels["U1_pst"].last_sample_acq_sidx, self.power_system._samplerate*61)
+
 
 if __name__ == "__main__":
     unittest.main()

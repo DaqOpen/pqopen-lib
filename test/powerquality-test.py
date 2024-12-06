@@ -7,6 +7,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 import pqopen.powerquality as pq
+from daqopen.channelbuffer import DataChannelBuffer
 
 class TestPowerPowerQualityHarmonic(unittest.TestCase):
     def setUp(self):
@@ -51,6 +52,51 @@ class TestPowerPowerQualityHarmonic(unittest.TestCase):
         self.assertAlmostEqual(v_h_phi[1], -90, places=2)
         self.assertAlmostEqual(v_h_phi[2], -90+45*2, places=2)
         self.assertAlmostEqual(v_thd, expected_v_thd, places=1)
+
+
+class TestPowerPowerQualityFlicker(unittest.TestCase):
+    def setUp(self):
+        ...
+
+    def test_steady_state(self):
+        samplerate = 10000
+        f_fund = 50
+        duration = 120
+        t = np.linspace(0, duration, samplerate*duration, endpoint=False)
+        u_values = 230*np.sqrt(2)*np.sin(2*np.pi*f_fund*t)
+
+        voltage_fluctuation = pq.VoltageFluctuation(samplerate)
+
+        blocksize = 1000
+        for blk_idx in range(t.size // blocksize):
+            hp_data = 230*np.ones(samplerate//blocksize*f_fund*2)
+            voltage_fluctuation.process(blk_idx*blocksize, hp_data, u_values[blk_idx*blocksize:(blk_idx+1)*blocksize])
+        pst = voltage_fluctuation.calc_pst(0, duration*samplerate)
+
+        self.assertGreaterEqual(voltage_fluctuation._pinst_channel.sample_count, 1000*40)
+        self.assertAlmostEqual(pst, 0.0, places=1)
+
+    def test_230V_50Hz_8Hz8(self):
+        samplerate = 10000
+        f_fund = 50
+        duration = 30
+        t = np.linspace(0, duration, samplerate*duration, endpoint=False)
+        u_values = 230*np.sqrt(2)*np.sin(2*np.pi*f_fund*t)
+        f_mod = 8.8
+        d_mod = 0.00250/2
+        u_values *= (1+d_mod*np.sin(2*np.pi*f_mod*t))
+
+        voltage_fluctuation = pq.VoltageFluctuation(samplerate)
+
+        blocksize = 1000
+        for blk_idx in range(t.size // blocksize):
+            hp_data = 230*np.ones(samplerate//blocksize*f_fund*2)
+            voltage_fluctuation.process(blk_idx*blocksize, hp_data, u_values[blk_idx*blocksize:(blk_idx+1)*blocksize])
+        pinst_1s, _ = voltage_fluctuation._pinst_channel.read_data_by_acq_sidx((duration-1)*samplerate, duration*samplerate)
+
+        self.assertGreaterEqual(voltage_fluctuation._pinst_channel.sample_count, 1000*(duration-20))
+        self.assertAlmostEqual(pinst_1s.max(), 1.0, places=2)
+
 
          
 if __name__ == "__main__":

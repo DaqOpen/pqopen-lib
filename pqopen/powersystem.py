@@ -122,8 +122,12 @@ class PowerSystem(object):
         self._features["harmonics"] = num_harmonics
         self._update_calc_channels()
 
-    def enable_fluctuation_calculation(self):
+    def enable_fluctuation_calculation(self, nominal_voltage: float = 230, pst_interval_sec: int = 600):
         self._features["fluctuation"] = True
+        self._nominal_voltage = nominal_voltage
+        self._pst_interval_sec = pst_interval_sec
+        self._pst_next_round_ts = 0
+        self._pst_last_calc_sidx = 0
         self._update_calc_channels()
 
     def enable_nper_abs_time_sync(self, time_channel: AcqBuffer, interval_sec: int = 600):
@@ -180,6 +184,12 @@ class PowerSystem(object):
                 for phys_type, calc_type in phys_types.items():
                     tmp = {channel.name: channel for channel in calc_type.values()}
                 self.output_channels.update(tmp)
+
+            if self._features["fluctuation"]:
+                for phase in self._phases:
+                    phase._voltage_fluctuation_processor = pq.VoltageFluctuation(samplerate=self._samplerate,
+                                                                                 nominal_volt=self._nominal_voltage,
+                                                                                 nominal_freq=self.nominal_frequency)
     
     def process(self):
         """
@@ -209,6 +219,7 @@ class PowerSystem(object):
                 # Process multi-period
                 self._process_multi_period(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
                 self._resync_nper_abs_time(-1)
+                self._process_fluctuation_calc(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
         
         self._last_processed_sidx = stop_acq_sidx
 
@@ -223,11 +234,30 @@ class PowerSystem(object):
         frequency = self._samplerate/(period_stop_sidx - period_start_sidx)
         self._calc_channels["one_period"]['power']['freq'].put_data_single(period_stop_sidx, frequency)
         for phase in self._phases:
-            u_values = phase._u_channel.read_data_by_index(period_start_sidx, period_stop_sidx)
+            # Read phase angle of phases's voltage if available
+            if "fund_phi" in phase._calc_channels["multi_period"]["voltage"]:
+                u_phi = phase._calc_channels["multi_period"]["voltage"]["fund_phi"].last_sample_value
+            else:
+                u_phi = 0.0
+            if u_phi < 0:
+                u_phi += 360
+            u_phi_samples = int(self._samplerate/frequency*u_phi/360)
+            phase_period_start_sidx = period_start_sidx - u_phi_samples
+            phase_period_stop_sidx = period_stop_sidx - u_phi_samples
+            phase_period_half_sidx = phase_period_start_sidx + int((phase_period_stop_sidx - phase_period_start_sidx)/2)
+            u_values = phase._u_channel.read_data_by_index(phase_period_start_sidx, phase_period_stop_sidx)
             for phys_type, output_channel in phase._calc_channels["one_period"]["voltage"].items():
                 if phys_type == "trms":
                     u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
-                    output_channel.put_data_single(period_stop_sidx, u_rms)
+                    output_channel.put_data_single(phase_period_stop_sidx, u_rms)
+            for phys_type, output_channel in phase._calc_channels["half_period"]["voltage"].items():
+                if phys_type == "trms":
+                    # First half period
+                    u_rms = np.sqrt(np.mean(np.power(u_values[:len(u_values)//2], 2)))
+                    output_channel.put_data_single(phase_period_half_sidx, u_rms)
+                    # Second half period
+                    u_rms = np.sqrt(np.mean(np.power(u_values[len(u_values)//2:], 2)))
+                    output_channel.put_data_single(phase_period_stop_sidx, u_rms)
 
             if phase._i_channel:
                 i_values = phase._i_channel.read_data_by_index(period_start_sidx, period_stop_sidx)
@@ -297,7 +327,31 @@ class PowerSystem(object):
                     if phys_type == "p_avg":
                         p_avg = np.mean(u_values * i_values)
                         output_channel.put_data_single(stop_sidx, p_avg)
-                
+    
+    def _process_fluctuation_calc(self, start_sidx: int, stop_sidx: int):
+        if not self._features["fluctuation"]:
+            return None
+        for phase in self._phases:
+            u_raw = phase._u_channel.read_data_by_index(start_sidx, stop_sidx)
+            u_hp_rms, _ = phase._calc_channels["half_period"]["voltage"]["trms"].read_data_by_acq_sidx(start_sidx, stop_sidx)
+            phase._voltage_fluctuation_processor.process(start_sidx, u_hp_rms, u_raw)
+        stop_ts = self._time_channel.read_data_by_index(stop_sidx, stop_sidx+1)[0]
+        if self._pst_next_round_ts == 0:
+            self._pst_next_round_ts = int(floor_timestamp(stop_ts, self._pst_interval_sec, ts_resolution="us")+self._pst_interval_sec*1e6)
+        # Calculate Pst and forward next timestamps due to interval
+        if (stop_ts > self._pst_next_round_ts):
+            logger.debug("Calculating Pst")
+            if self._pst_last_calc_sidx == 0:
+                self._pst_last_calc_sidx = self._pst_next_round_ts
+                self._pst_next_round_ts = self._pst_next_round_ts + self._pst_interval_sec*1_000_000
+                return None
+            ts_between_start_stop = self._time_channel.read_data_by_index(start_sidx, stop_sidx)
+            calc_stop_sidx = start_sidx + np.searchsorted(ts_between_start_stop, self._pst_next_round_ts)
+            for phase in self._phases:
+                pst = phase._voltage_fluctuation_processor.calc_pst(self._pst_last_calc_sidx, calc_stop_sidx)
+                phase._calc_channels["multi_period"]["voltage"]["pst"].put_data_single(calc_stop_sidx, pst)
+            self._pst_last_calc_sidx = calc_stop_sidx
+            self._pst_next_round_ts = int(floor_timestamp(stop_ts, self._pst_interval_sec, ts_resolution="us")+self._pst_interval_sec*1e6)
 
     def _detect_zero_crossings(self, start_acq_sidx: int, stop_acq_sidx: int) -> List[int]:
         """
@@ -381,10 +435,12 @@ class PowerPhase(object):
         self._number = number
         self.name = name
         self._calc_channels = {}
+        self._voltage_fluctuation_processor: pq.VoltageFluctuation = None
 
     def update_calc_channels(self, features):
         self._calc_channels = {"half_period": {}, "one_period": {}, "one_period_ovlp": {}, "multi_period": {}}
         # Create Voltage Channels
+        self._calc_channels["half_period"]["voltage"] = {}
         self._calc_channels["one_period"]["voltage"] = {}
         self._calc_channels["multi_period"]["voltage"] = {}
         self._calc_channels["one_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_rms'.format(self.name), agg_type='rms', unit="V")
@@ -396,6 +452,10 @@ class PowerPhase(object):
             self._calc_channels["multi_period"]["voltage"]["harm_rms"] = DataChannelBuffer('U{:s}_H_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="V")
             self._calc_channels["multi_period"]["voltage"]["iharm_rms"] = DataChannelBuffer('U{:s}_IH_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="V")
             self._calc_channels["multi_period"]["voltage"]["thd"] = DataChannelBuffer('U{:s}_THD'.format(self.name), unit="%")
+
+        if "fluctuation" in features and features["fluctuation"]:
+            self._calc_channels["half_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_hp_rms'.format(self.name), agg_type='rms', unit="V")
+            self._calc_channels["multi_period"]["voltage"]["pst"] = DataChannelBuffer('U{:s}_pst'.format(self.name), agg_type='max', unit="")
 
         # Create Current Channels
         if self._i_channel:
