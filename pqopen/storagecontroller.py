@@ -3,7 +3,7 @@ from pqopen.helper import floor_timestamp
 from daqopen.channelbuffer import DataChannelBuffer, AcqBuffer
 from persistmq.client import PersistClient
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 import logging
 import json
 import gzip
@@ -54,7 +54,7 @@ class StoragePlan(object):
         """
         self.storage_endpoint = storage_endpoint
         self.interval_seconds = interval_seconds
-        self.channels: List[DataChannelBuffer] = []
+        self.channels: List[Dict] = []
     
         self.next_storage_timestamp = start_timestamp_us
         self.next_storage_sample_index = 0
@@ -69,7 +69,7 @@ class StoragePlan(object):
         Parameters:
             channel: The channel to add.
         """
-        self.channels.append(channel)
+        self.channels.append({"channel": channel, "last_store_sidx": 0})
 
     def store_data_series(self, time_channel: AcqBuffer):
         """
@@ -82,8 +82,8 @@ class StoragePlan(object):
         for channel in self.channels:
             channel_timestamps = []
             channel_sample_indices = []
-            if isinstance(channel, DataChannelBuffer):
-                channel_data, channel_sample_indices = channel.read_data_by_acq_sidx(self.last_storage_sample_index, self.next_storage_sample_index)
+            if isinstance(channel["channel"], DataChannelBuffer):
+                channel_data, channel_sample_indices = channel["channel"].read_data_by_acq_sidx(self.last_storage_sample_index, self.next_storage_sample_index)
                 # Convert to serializable data types
                 channel_data = channel_data.tolist()
                 channel_sample_indices = channel_sample_indices.tolist()
@@ -94,7 +94,7 @@ class StoragePlan(object):
                 for sample_index in channel_sample_indices:
                     channel_timestamps.append(int(time_channel.read_data_by_index(sample_index, sample_index + 1)[0]))
 
-            data[channel.name] = {'data': channel_data, 'timestamps': channel_timestamps}
+            data[channel["channel"].name] = {'data': channel_data, 'timestamps': channel_timestamps}
 
         self.storage_endpoint.write_data_series(data)
 
@@ -107,13 +107,14 @@ class StoragePlan(object):
         """
         data = {}
         for channel in self.channels:
-            channel_data, last_included_sidx = channel.read_agg_data_by_acq_sidx(
-                self.last_storage_sample_index, stop_sidx, include_next=True
+            channel_data, last_included_sidx = channel["channel"].read_agg_data_by_acq_sidx(
+                channel["last_store_sidx"], stop_sidx, include_next=True
             )
-            data[channel.name] = channel_data
+            data[channel["channel"].name] = channel_data
+            channel["last_store_sidx"] = last_included_sidx+1 if last_included_sidx else stop_sidx
 
         self.storage_endpoint.write_aggregated_data(data, self.next_storage_timestamp, self.interval_seconds)
-        self.last_storage_sample_index = last_included_sidx+1 if last_included_sidx else stop_sidx
+        #self.last_storage_sample_index = last_included_sidx+1 if last_included_sidx else stop_sidx
 
 class StorageController(object):
     """Manages multiple storage plans and processes data for storage."""
