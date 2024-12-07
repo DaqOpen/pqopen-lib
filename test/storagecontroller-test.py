@@ -30,14 +30,14 @@ class TestStorageController(unittest.TestCase):
 
         self.time_channel.put_data(np.arange(0, 10, 1/self.samplerate)*1e6)
         self.scalar_channel.put_data_single(1, 5)
-        self.scalar_channel.put_data_single(1000, 10) # will be the first value
+        self.scalar_channel.put_data_single(1000, 10) 
         self.scalar_channel.put_data_single(1999, 20) # in interval window 2
         self.scalar_channel.put_data_single(2000, 30) # will be included in interval window 2 (because next value after)
         self.scalar_channel.put_data_single(2100, 40)
 
         self.storage_controller.process()
 
-        self.assertEqual(storage_endpoint._aggregated_data_list[0], {"data": {"scalar1": 10.0}, "timestamp_us": 1000_000, "interval_sec": 1})
+        self.assertEqual(storage_endpoint._aggregated_data_list[0], {"data": {"scalar1": 7.5}, "timestamp_us": 1000_000, "interval_sec": 1})
         self.assertEqual(storage_endpoint._aggregated_data_list[1], {"data": {"scalar1": 25.0}, "timestamp_us": 2000_000, "interval_sec": 1})
         self.assertEqual(storage_endpoint._aggregated_data_list[2], {"data": {"scalar1": 40.0}, "timestamp_us": 3000_000, "interval_sec": 1})
 

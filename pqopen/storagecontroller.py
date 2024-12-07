@@ -107,13 +107,13 @@ class StoragePlan(object):
         """
         data = {}
         for channel in self.channels:
-            channel_data = channel.read_agg_data_by_acq_sidx(
+            channel_data, last_included_sidx = channel.read_agg_data_by_acq_sidx(
                 self.last_storage_sample_index, stop_sidx, include_next=True
             )
             data[channel.name] = channel_data
 
         self.storage_endpoint.write_aggregated_data(data, self.next_storage_timestamp, self.interval_seconds)
-        self.last_storage_sample_index = stop_sidx
+        self.last_storage_sample_index = last_included_sidx+1 if last_included_sidx else stop_sidx
 
 class StorageController(object):
     """Manages multiple storage plans and processes data for storage."""
