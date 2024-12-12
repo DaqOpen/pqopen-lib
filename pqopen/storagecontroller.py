@@ -225,14 +225,14 @@ class StorageController(object):
             if ep_type == "csv":
                 csv_storage_endpoint = CsvStorageEndpoint("csv", measurement_id, "data")
                 configured_eps["csv"] = csv_storage_endpoint
-            elif ep_type == "persistmq":
-                mqtt_storage_endpoint = PersistMqStorageEndpoint(name="persistMq", 
+            elif ep_type == "daqopen-server":
+                mqtt_storage_endpoint = DaqOpenServerStorageEndpoint(name="daqopen-server", 
                                                                  measurement_id=measurement_id, 
                                                                  device_id=device_id, 
                                                                  mqtt_host=ep_config.get("hostname", "localhost"), 
                                                                  client_id=client_id, 
                                                                  cache_path=Path("/tmp/"))
-                configured_eps["persistmq"] = mqtt_storage_endpoint
+                configured_eps["daqopen-server"] = mqtt_storage_endpoint
             else:
                 raise NotImplementedError(f"{ep_type:s} not implemented")
         for sp_name, sp_config in storage_plans.items():
@@ -273,8 +273,8 @@ class TestStorageEndpoint(StorageEndpoint):
     def write_aggregated_data(self, data, timestamp_us, interval_seconds):
         self._aggregated_data_list.append({"data": data, "timestamp_us": timestamp_us, "interval_sec": interval_seconds})
 
-class PersistMqStorageEndpoint(StorageEndpoint):
-    """Represents a persistMQ endpoint (MQTT) for transferring data."""
+class DaqOpenServerStorageEndpoint(StorageEndpoint):
+    """Represents a DaqOpen server endpoint (MQTT) for transferring data."""
     def __init__(self, name: str, measurement_id: str, device_id: str, mqtt_host: str, client_id: str, cache_path: str | Path):
         """ Create a persistMQ storage endpoint
 
@@ -284,7 +284,7 @@ class PersistMqStorageEndpoint(StorageEndpoint):
             device_id: The device Id
             mqtt_host: hostname of the MQTT broker.
             client_id: name to be used for mqtt client identification
-            cache_path: Data path for the caching for persistMq
+            cache_path: Data path for the caching for underlying persistMq
         """
         super().__init__(name, measurement_id)
         self._device_id = device_id

@@ -10,7 +10,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
-from pqopen.storagecontroller import StorageController, StoragePlan, TestStorageEndpoint, PersistMqStorageEndpoint
+from pqopen.storagecontroller import StorageController, StoragePlan, TestStorageEndpoint, DaqOpenServerStorageEndpoint
 
 
 class TestStorageController(unittest.TestCase):
@@ -71,12 +71,12 @@ class TestStorageEndpoints(unittest.TestCase):
 
     def test_persist_mq_endpoint(self):
         # Define Endpoint
-        test_endpoint = PersistMqStorageEndpoint(name="Test",
-                                                 measurement_id="1234",
-                                                 device_id="0001",
-                                                 mqtt_host="localhost",
-                                                 client_id="testclient",
-                                                 cache_path=Path("/tmp/"))
+        test_endpoint = DaqOpenServerStorageEndpoint(name="Test",
+                                                     measurement_id="1234",
+                                                     device_id="b990cdff-87fb-4f82-b443-864ce7ba1731",
+                                                     mqtt_host="localhost",
+                                                     client_id="testclient",
+                                                     cache_path=Path("/tmp/"))
         # Configure Storage Plan
         storage_plan = StoragePlan(test_endpoint, 0, interval_seconds=1)
         storage_plan.add_channel(self.scalar_channel)
@@ -86,7 +86,9 @@ class TestStorageEndpoints(unittest.TestCase):
         for i in range(100):
             self.scalar_channel.put_data_single(i*100, i)
 
-        self.storage_controller.process()        
+        self.storage_controller.process()
+        # Wait until finished!!!
+        time.sleep(1)  
 
 
 if __name__ == "__main__":
