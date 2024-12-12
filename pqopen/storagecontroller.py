@@ -196,6 +196,68 @@ class StorageController(object):
             storage_plan.next_storage_timestamp = int(floor_timestamp(timestamp=storage_plan.next_storage_timestamp + int(storage_plan.interval_seconds*1e6),
                                                                       interval_seconds=storage_plan.interval_seconds,
                                                                       ts_resolution="us"))
+            
+    def setup_endpoints_and_storageplans(self, 
+                                         endpoints: dict, 
+                                         storage_plans: dict, 
+                                         available_channels: dict, 
+                                         measurement_id: str, 
+                                         device_id: str, 
+                                         client_id: str,
+                                         start_timestamp_us: int):
+        """
+        Setup endpoints and storage plans from config
+
+        Args:
+            endpoints: Dict of endpoints to be configured (csv and persistmq are supported for now)
+            storage_plans: Dict of storageplans to be created
+            available_channels: List of all available channels
+            measurement_id: The actual measurement id for tagging the session
+            device_id: Id of the device for unique tagging the data origin
+            client_id: Id of the client for mqtt or other endpoints
+            start_timestamp_us: Timestamp of the start of measurmement
+
+        Raises:
+            NotImplementedError: If a not implemented endpoint will be configured
+        """
+        configured_eps = {}
+        for ep_type, ep_config in endpoints.items():
+            if ep_type == "csv":
+                csv_storage_endpoint = CsvStorageEndpoint("csv", measurement_id, "data")
+                configured_eps["csv"] = csv_storage_endpoint
+            elif ep_type == "persistmq":
+                mqtt_storage_endpoint = PersistMqStorageEndpoint(name="persistMq", 
+                                                                 measurement_id=measurement_id, 
+                                                                 device_id=device_id, 
+                                                                 mqtt_host=ep_config.get("hostname", "localhost"), 
+                                                                 client_id=client_id, 
+                                                                 cache_path=Path("/tmp/"))
+                configured_eps["persistmq"] = mqtt_storage_endpoint
+            else:
+                raise NotImplementedError(f"{ep_type:s} not implemented")
+        for sp_name, sp_config in storage_plans.items():
+            sp_endpoint = sp_config.get("endpoint")
+            if sp_endpoint not in configured_eps:
+                logger.warning(f"Endpoint {sp_endpoint:s} not configured")
+                continue
+            storage_plan = StoragePlan(storage_endpoint=configured_eps[sp_endpoint],
+                                       start_timestamp_us=start_timestamp_us,
+                                       interval_seconds=sp_config.get("interval_sec", 600),
+                                       storage_name=sp_name)
+            channels_to_store = sp_config.get("channels", [])
+            if not channels_to_store:
+                # Add all available channels
+                for channel in available_channels.values():
+                    storage_plan.add_channel(channel)
+            else:
+                for channel in channels_to_store:
+                    if len(channel._data.shape) == 1:
+                        if not channel in available_channels:
+                            logger.warning(f"Channel {channel} not available for storing")
+                        storage_plan.add_channel(available_channels[channel])
+            self.add_storage_plan(storage_plan)
+
+            
 
 class TestStorageEndpoint(StorageEndpoint):
     """A implementation of StorageEndpoint for testing purposes."""
@@ -240,7 +302,7 @@ class PersistMqStorageEndpoint(StorageEndpoint):
         agg_data_obj = {'type': 'aggregated_data',
                         'measurement_uuid': self.measurement_id,
                         'interval_sec': interval_seconds,
-                        'timestamp': timestamp_us,
+                        'timestamp': timestamp_us/1e6,
                         'data': data}
         json_item = json.dumps(agg_data_obj)
         self._client.publish(f"dt/pqopen/{self._device_id:s}/agg_data/gjson",
@@ -266,6 +328,8 @@ class CsvStorageEndpoint(StorageEndpoint):
         self._file_path.mkdir(parents=True, exist_ok=True)
 
     def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int):
+        # Filter scalar values for now
+        data = {key: value for key, value in data.items() if isinstance(value, (float, int, type(None)))}
         file_path = self._file_path/f"{self.measurement_id}_{interval_seconds:d}s.csv"
         channel_names = list(data.keys())
         if not self._header_keys:
