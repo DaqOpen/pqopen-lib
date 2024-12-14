@@ -7,6 +7,7 @@ from typing import List, Dict
 import logging
 import json
 import gzip
+import paho.mqtt.client as mqtt
 
 logger = logging.getLogger(__name__)
 
@@ -220,27 +221,35 @@ class StorageController(object):
         Raises:
             NotImplementedError: If a not implemented endpoint will be configured
         """
-        configured_eps = {}
+        self._configured_eps = {}
         for ep_type, ep_config in endpoints.items():
             if ep_type == "csv":
                 csv_storage_endpoint = CsvStorageEndpoint("csv", measurement_id, "data")
-                configured_eps["csv"] = csv_storage_endpoint
+                self._configured_eps["csv"] = csv_storage_endpoint
             elif ep_type == "daqopen-server":
-                mqtt_storage_endpoint = DaqOpenServerStorageEndpoint(name="daqopen-server", 
+                daqopenserver_endpoint = DaqOpenServerStorageEndpoint(name="daqopen-server", 
                                                                  measurement_id=measurement_id, 
                                                                  device_id=device_id, 
                                                                  mqtt_host=ep_config.get("hostname", "localhost"), 
                                                                  client_id=client_id, 
                                                                  cache_path=Path("/tmp/"))
-                configured_eps["daqopen-server"] = mqtt_storage_endpoint
+                self._configured_eps["daqopen-server"] = daqopenserver_endpoint
+            elif ep_type == "mqtt":
+                mqtt_storage_endpoint = MqttStorageEndpoint(name="mqtt", 
+                                                                 measurement_id=measurement_id, 
+                                                                 device_id=device_id, 
+                                                                 mqtt_host=ep_config.get("hostname", "localhost"), 
+                                                                 client_id=client_id,
+                                                                 compression=ep_config.get("compression", False))
+                self._configured_eps["mqtt"] = mqtt_storage_endpoint
             else:
                 raise NotImplementedError(f"{ep_type:s} not implemented")
         for sp_name, sp_config in storage_plans.items():
             sp_endpoint = sp_config.get("endpoint")
-            if sp_endpoint not in configured_eps:
+            if sp_endpoint not in self._configured_eps:
                 logger.warning(f"Endpoint {sp_endpoint:s} not configured")
                 continue
-            storage_plan = StoragePlan(storage_endpoint=configured_eps[sp_endpoint],
+            storage_plan = StoragePlan(storage_endpoint=self._configured_eps[sp_endpoint],
                                        start_timestamp_us=start_timestamp_us,
                                        interval_seconds=sp_config.get("interval_sec", 600),
                                        storage_name=sp_name)
@@ -272,6 +281,53 @@ class TestStorageEndpoint(StorageEndpoint):
 
     def write_aggregated_data(self, data, timestamp_us, interval_seconds):
         self._aggregated_data_list.append({"data": data, "timestamp_us": timestamp_us, "interval_sec": interval_seconds})
+
+
+class MqttStorageEndpoint(StorageEndpoint):
+    """Represents a MQTT endpoint (MQTT) for transferring data."""
+    def __init__(self, name: str, measurement_id: str, device_id: str, mqtt_host: str, client_id: str, compression: bool=True):
+        """ Create a MQTT storage endpoint
+
+        Parameters:
+            name: The name of the endpoint
+            measurement_id: Id of the measurement, will be indcluded in the transmitted data
+            device_id: The device Id
+            mqtt_host: hostname of the MQTT broker.
+            client_id: name to be used for mqtt client identification
+            compression: Flag if payload should be compressed with gzip or not
+        """
+        super().__init__(name, measurement_id)
+        self._device_id = device_id
+        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, clean_session=False)
+        self._client.connect_async(host=mqtt_host)
+        self._compression = compression
+        self._client.loop_start()
+
+    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int):
+        """ Write an aggregated data message
+
+        Parameters:
+            data: The data object to be sent
+            timestamp_us: Timestamp (in µs) of the data set
+            interval_seconds: Aggregation intervall, used as data tag
+        """
+        agg_data_obj = {'type': 'aggregated_data',
+                        'measurement_uuid': self.measurement_id,
+                        'interval_sec': interval_seconds,
+                        'timestamp': timestamp_us/1e6,
+                        'data': data}
+        json_item = json.dumps(agg_data_obj)
+        if self._compression:
+            self._client.publish(f"dt/pqopen/{self._device_id:s}/agg_data/gjson",
+                            gzip.compress(json_item.encode('utf-8')), qos=2)
+        else:
+            self._client.publish(f"dt/pqopen/{self._device_id:s}/agg_data/json",
+                            json_item.encode('utf-8'), qos=2)
+        
+    # def __del__(self):
+    #     self._client.loop_stop()
+    #     self._client.disconnect()
+
 
 class DaqOpenServerStorageEndpoint(StorageEndpoint):
     """Represents a DaqOpen server endpoint (MQTT) for transferring data."""
