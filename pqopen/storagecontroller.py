@@ -72,7 +72,7 @@ class StoragePlan(object):
         """
         self.channels.append({"channel": channel, "last_store_sidx": 0})
 
-    def store_data_series(self, time_channel: AcqBuffer):
+    def store_data_series(self, time_channel: AcqBuffer, sample_rate: float):
         """
         Stores a series of data (1:1) from the channels in the storage plan.
 
@@ -92,8 +92,12 @@ class StoragePlan(object):
                 logger.warning("Channel is not of instance DataChannelBuffer")
 
             if channel_sample_indices:
+                most_recent_sample_idx = channel_sample_indices[-1]
+                most_recent_timestamp = int(time_channel.read_data_by_index(most_recent_sample_idx, most_recent_sample_idx + 1)[0])
+                start_sample_idx = channel_sample_indices[0]
+                start_timestamp = most_recent_timestamp - int(round((most_recent_sample_idx - start_sample_idx)/sample_rate*1e6, 0))
                 for sample_index in channel_sample_indices:
-                    channel_timestamps.append(int(time_channel.read_data_by_index(sample_index, sample_index + 1)[0]))
+                    channel_timestamps.append(start_timestamp + int(round((sample_index - start_sample_idx)/sample_rate*1e6,0)))
 
             data[channel["channel"].name] = {'data': channel_data, 'timestamps': channel_timestamps}
 
@@ -156,7 +160,7 @@ class StorageController(object):
         timestamps = self.time_channel.read_data_by_index(start_acq_sidx, stop_acq_sidx)
         
         for storage_plan in self.storage_plans:
-            if storage_plan.interval_seconds is None:
+            if storage_plan.interval_seconds <= 0:
                 self._process_data_series(storage_plan, start_acq_sidx, timestamps)
             else:
                 self._process_aggregated_data(storage_plan, start_acq_sidx, timestamps)
@@ -175,7 +179,7 @@ class StorageController(object):
         while storage_plan.next_storage_timestamp <= timestamps.max():
             if timestamps.min() < storage_plan.next_storage_timestamp:
                 storage_plan.next_storage_sample_index = start_acq_sidx + timestamps.searchsorted(storage_plan.next_storage_timestamp)
-                storage_plan.store_data_series(self.time_channel)
+                storage_plan.store_data_series(self.time_channel, self.sample_rate)
                 storage_plan.last_storage_sample_index = storage_plan.next_storage_sample_index
             storage_plan.next_storage_timestamp += self.DATA_SERIES_PACKET_TIME
 
@@ -260,10 +264,13 @@ class StorageController(object):
                     storage_plan.add_channel(channel)
             else:
                 for channel in channels_to_store:
-                    if len(channel._data.shape) == 1:
-                        if not channel in available_channels:
-                            logger.warning(f"Channel {channel} not available for storing")
-                        storage_plan.add_channel(available_channels[channel])
+                    if channel in available_channels:
+                        if len(available_channels[channel]._data.shape) == 1:
+                            storage_plan.add_channel(available_channels[channel])
+                        else:
+                            logger.warning(f"Channel {channel} not a scalar")
+                    else:      
+                        logger.warning(f"Channel {channel} not available for storing")
             self.add_storage_plan(storage_plan)
 
             
@@ -323,10 +330,23 @@ class MqttStorageEndpoint(StorageEndpoint):
         else:
             self._client.publish(f"dt/pqopen/{self._device_id:s}/agg_data/json",
                             json_item.encode('utf-8'), qos=2)
-        
-    # def __del__(self):
-    #     self._client.loop_stop()
-    #     self._client.disconnect()
+            
+    def write_data_series(self, data: dict):
+        """ Write a timeseries data message
+
+        Parameters:
+            data: The data object to be sent
+        """
+        data_series_obj = {'type': 'timeseries_data',
+                        'measurement_uuid': self.measurement_id,
+                        'data': data}
+        json_item = json.dumps(data_series_obj)
+        if self._compression:
+            self._client.publish(f"dt/pqopen/{self._device_id:s}/dataseries/gjson",
+                            gzip.compress(json_item.encode('utf-8')), qos=2)
+        else:
+            self._client.publish(f"dt/pqopen/{self._device_id:s}/dataseries/json",
+                            json_item.encode('utf-8'), qos=2)
 
 
 class DaqOpenServerStorageEndpoint(StorageEndpoint):

@@ -44,7 +44,7 @@ class TestStorageController(unittest.TestCase):
     def test_one_storageplan_series(self):
         storage_endpoint = TestStorageEndpoint("Test", "1234")
         # Configure Storage Plan
-        storage_plan = StoragePlan(storage_endpoint, 0, interval_seconds=None)
+        storage_plan = StoragePlan(storage_endpoint, 0, interval_seconds=0)
         storage_plan.add_channel(self.scalar_channel)
         self.storage_controller.add_storage_plan(storage_plan)
 
