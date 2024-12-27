@@ -197,7 +197,9 @@ class StorageController(object):
             if timestamps.min() < storage_plan.next_storage_timestamp:
                 stop_store_sidx = start_acq_sidx + timestamps.searchsorted(storage_plan.next_storage_timestamp)
                 storage_plan.store_aggregated_data(stop_store_sidx)
-            logger.debug(f"Storage Plan {storage_plan.storage_name}: stop_store_sidx={stop_store_sidx:d} next_storage_timestamp={storage_plan.next_storage_timestamp:d} ts_min={timestamps.min():d} ts_max={timestamps.max():d}")
+                logger.debug(f"Storage Plan {storage_plan.storage_name}: stop_store_sidx={stop_store_sidx:d} next_storage_timestamp={storage_plan.next_storage_timestamp:d} ts_min={timestamps.min():d} ts_max={timestamps.max():d}")
+            else:
+                logger.debug(f"Storage Plan {storage_plan.storage_name}: next_storage_timestamp={storage_plan.next_storage_timestamp:d} ts_min={timestamps.min():d} ts_max={timestamps.max():d}")
             # Calculate next round timestamp for storing
             storage_plan.next_storage_timestamp = int(floor_timestamp(timestamp=storage_plan.next_storage_timestamp + int(storage_plan.interval_seconds*1e6),
                                                                       interval_seconds=storage_plan.interval_seconds,
