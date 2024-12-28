@@ -193,8 +193,8 @@ class StorageController(object):
             timestamps: The array of timestamps.
         """
         while storage_plan.next_storage_timestamp <= timestamps.max():
-            # Check if storage plan timestamp is in the current time span
-            if timestamps.min() < storage_plan.next_storage_timestamp:
+            # Check if storage plan timestamp is in the current time span (-1 Sample)
+            if (timestamps.min() - int(1e6/self.sample_rate)) < storage_plan.next_storage_timestamp:
                 stop_store_sidx = start_acq_sidx + timestamps.searchsorted(storage_plan.next_storage_timestamp)
                 storage_plan.store_aggregated_data(stop_store_sidx)
                 logger.debug(f"Storage Plan {storage_plan.storage_name}: stop_store_sidx={stop_store_sidx:d} next_storage_timestamp={storage_plan.next_storage_timestamp:d} ts_min={timestamps.min():d} ts_max={timestamps.max():d}")
