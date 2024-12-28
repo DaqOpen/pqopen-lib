@@ -10,7 +10,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
-from pqopen.storagecontroller import StorageController, StoragePlan, TestStorageEndpoint, DaqOpenServerStorageEndpoint
+from pqopen.storagecontroller import StorageController, StoragePlan, TestStorageEndpoint, DaqOpenServerStorageEndpoint, CsvStorageEndpoint
 
 
 class TestStorageController(unittest.TestCase):
@@ -89,6 +89,24 @@ class TestStorageEndpoints(unittest.TestCase):
         self.storage_controller.process()
         # Wait until finished!!!
         time.sleep(1)  
+
+    def test_csv_endpoint(self):
+        # Define Endpoint
+        csv_endpoint = CsvStorageEndpoint(name="Test",
+                                          measurement_id="1234",
+                                          file_path=".")
+        # Configure Storage Plan
+        storage_plan = StoragePlan(csv_endpoint, 0, interval_seconds=1)
+        storage_plan.add_channel(self.scalar_channel)
+        storage_plan.add_channel(self.array_channel)
+        self.storage_controller.add_storage_plan(storage_plan)
+
+        self.time_channel.put_data(np.arange(0, 10_000_000, 1e6//self.samplerate))
+        for i in range(100):
+            self.scalar_channel.put_data_single(i*100, i)
+
+        self.storage_controller.process()
+        # Wait until finished!!!
 
 
 if __name__ == "__main__":

@@ -57,6 +57,7 @@ class StoragePlan(object):
         self.interval_seconds = interval_seconds
         self.channels: List[Dict] = []
     
+        self._storage_counter = 0
         self.next_storage_timestamp = start_timestamp_us
         self.next_storage_sample_index = 0
         self.last_storage_sample_index = 0
@@ -194,7 +195,7 @@ class StorageController(object):
         """
         while storage_plan.next_storage_timestamp <= timestamps.max():
             # Check if storage plan timestamp is in the current time span (-1 Sample)
-            if (timestamps.min() - int(1e6/self.sample_rate)) < storage_plan.next_storage_timestamp:
+            if storage_plan._storage_counter and ((timestamps.min() - int(1e6/self.sample_rate)) < storage_plan.next_storage_timestamp):
                 stop_store_sidx = start_acq_sidx + timestamps.searchsorted(storage_plan.next_storage_timestamp)
                 storage_plan.store_aggregated_data(stop_store_sidx)
                 logger.debug(f"Storage Plan {storage_plan.storage_name}: stop_store_sidx={stop_store_sidx:d} next_storage_timestamp={storage_plan.next_storage_timestamp:d} ts_min={timestamps.min():d} ts_max={timestamps.max():d}")
@@ -204,6 +205,7 @@ class StorageController(object):
             storage_plan.next_storage_timestamp = int(floor_timestamp(timestamp=storage_plan.next_storage_timestamp + int(storage_plan.interval_seconds*1e6),
                                                                       interval_seconds=storage_plan.interval_seconds,
                                                                       ts_resolution="us"))
+            storage_plan._storage_counter += 1
             
     def setup_endpoints_and_storageplans(self, 
                                          endpoints: dict, 
@@ -413,9 +415,9 @@ class CsvStorageEndpoint(StorageEndpoint):
         channel_names = list(data.keys())
         if not self._header_keys:
             self._header_keys = channel_names
-            file_path.write_text("timestamp," + ",".join(channel_names)[:-2]+"\n")
+            file_path.write_text("timestamp," + ",".join(channel_names)+"\n")
         if self._header_keys != channel_names:
             logger.warning("CSV-Writer: Channel names and known keys differ!")
         with open(file_path, "a") as f:
             f.write(f"{timestamp_us/1e6:.3f},")
-            f.write(",".join([f"{data[key]:.3f}" if isinstance(data[key], float) else "" for key in self._header_keys])+"\n")
+            f.write(",".join([f"{data[key]:.3f}" if isinstance(data[key], (float, int)) else "" for key in self._header_keys])+"\n")
