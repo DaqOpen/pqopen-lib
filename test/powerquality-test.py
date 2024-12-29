@@ -97,6 +97,90 @@ class TestPowerPowerQualityFlicker(unittest.TestCase):
         self.assertGreaterEqual(voltage_fluctuation._pinst_channel.sample_count, 1000*(duration-20))
         self.assertAlmostEqual(pinst_1s.max(), 1.0, places=2)
 
+class TestPowerPowerQualityUnbalance(unittest.TestCase):
+    def setUp(self):
+        ...
+    
+    def test_no_unbalance(self):
+        u1 = 100*np.exp(1j*0*np.pi/180)
+        u2 = 100*np.exp(1j*(-120)*np.pi/180)
+        u3 = 100*np.exp(1j*120*np.pi/180)
+        u0, u2 = pq.calc_unbalance([u1, u2, u3])
+
+        self.assertAlmostEqual(u0, 0)
+        self.assertAlmostEqual(u2, 0)
+
+    def test_reverse_sequence(self):
+        u1 = 100*np.exp(1j*0*np.pi/180)
+        u2 = 100*np.exp(1j*(120)*np.pi/180)
+        u3 = 100*np.exp(1j*(-120)*np.pi/180)
+        u0, u2 = pq.calc_unbalance([u1, u2, u3])
+
+        self.assertGreater(u2, 100)
+
+    def test_moderate_unbalance(self):
+        u1 = 100*np.exp(1j*0*np.pi/180)
+        u2 = 90*np.exp(1j*(-120)*np.pi/180)
+        u3 = 100*np.exp(1j*(120)*np.pi/180)
+        u0, u2 = pq.calc_unbalance([u1, u2, u3])
+
+        self.assertAlmostEqual(u0, 3.4482758620689)
+        self.assertAlmostEqual(u2, 3.4482758620689)
+
+    def test_zero_sequence(self):
+        u1 = 100*np.exp(1j*0*np.pi/180) + 10
+        u2 = 100*np.exp(1j*(-120)*np.pi/180) + 10
+        u3 = 100*np.exp(1j*(120)*np.pi/180) + 10
+        u0, u2 = pq.calc_unbalance([u1, u2, u3])
+
+        self.assertAlmostEqual(u0, 10)
+        self.assertAlmostEqual(u2, 0)
+
+class TestPowerPowerQualityMsv(unittest.TestCase):
+    def setUp(self):
+        ...
+    
+    def test_no_msv(self):
+        samplerate = 10000
+        f_fund = 50
+        duration = 0.2
+        t = np.linspace(0, duration, int(samplerate*duration), endpoint=False)
+
+        u_values = 230*np.sqrt(2)*np.sin(2*np.pi*f_fund*t)
+
+        u_fft_rms = np.fft.rfft(u_values)/len(u_values)*np.sqrt(2)
+
+        u_msv_rms = pq.calc_mains_signaling_voltage(u_fft_rms, 100, 10, 50)
+
+        self.assertAlmostEqual(u_msv_rms, 0)
+
+    def test_moderate_msv_50Hz(self):
+        samplerate = 10000
+        f_fund = 50
+        duration = 0.2
+        t = np.linspace(0, duration, int(samplerate*duration), endpoint=False)
+
+        u_values = 230*np.sqrt(2)*np.sin(2*np.pi*f_fund*t) + np.sqrt(2)*np.sin(2*np.pi*275*t)
+
+        u_fft_rms = np.fft.rfft(u_values)/len(u_values)*np.sqrt(2)
+
+        u_msv_rms = pq.calc_mains_signaling_voltage(u_fft_rms, 275, 10, 50)
+
+        self.assertAlmostEqual(u_msv_rms, 1)
+
+    def test_moderate_msv_51Hz(self):
+        samplerate = 10000
+        f_fund = 51
+        duration = 10.0/f_fund
+        t = np.linspace(0, duration, int(samplerate*duration), endpoint=False)
+
+        u_values = 230*np.sqrt(2)*np.sin(2*np.pi*f_fund*t) + np.sqrt(2)*np.sin(2*np.pi*275*t)
+
+        u_fft_rms = np.fft.rfft(u_values)/len(u_values)*np.sqrt(2)
+
+        u_msv_rms = pq.calc_mains_signaling_voltage(u_fft_rms, 275, 10, f_fund)
+
+        self.assertAlmostEqual(u_msv_rms, 1, places=2)
 
          
 if __name__ == "__main__":

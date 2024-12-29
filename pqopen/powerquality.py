@@ -219,3 +219,45 @@ class VoltageFluctuation(object):
         P1s = (P['0.7'] + P['1'] + P['1.5'])/3
         Pst = np.sqrt(0.0314*P['0.1'] + 0.0525*P1s + 0.0657*P3s + 0.28*P10s + 0.08*P50s)
         return Pst
+    
+
+def calc_unbalance(u_cplx: list) -> tuple:
+    """
+    Calculate voltage unbalance of a 3-phase power system according
+    to IEC 61000-4-30 with method of symmetrical components.
+
+    Parameters:
+        u_cplx: List of complex voltage vectors of each phase
+
+    Returns:
+        Tuple[float, float]: 
+            u0: relative zero sequence in %
+            u2: relative negative sequence in %
+    """
+    a = np.exp(2*np.pi/3*(1j))
+    u_p = np.abs(1/3*(u_cplx[0] + a*u_cplx[1] + a**2*u_cplx[2]))
+    u_n = np.abs(1/3*(u_cplx[0] + a**2*u_cplx[1] + a*u_cplx[2]))
+    u_0 = np.abs(1/3*(u_cplx[0] + u_cplx[1] + u_cplx[2]))
+    if u_p > 0:
+        return u_0/u_p*100, u_n/u_p*100
+    else:
+        return np.nan, np.nan
+    
+def calc_mains_signaling_voltage(u_fft_rms: np.ndarray, msv_freq: float, num_periods: int, f_fund: float) -> float:
+    """
+    Calculate mains signaling voltage according
+    to IEC 61000-4-30 with method of fft-neighbourhood.
+
+    Parameters:
+        u_fft_rms: magnitude (rms) fft result
+        msv_freq: frequency of expected msv
+        num_periods: number of periods used for calculation of fft
+        f_fund: fundamental frequency
+
+    Returns:
+        msv_rms: magitude of msv
+    """
+    exact_fft_idx = msv_freq/f_fund*num_periods
+    fft_idx = np.arange(np.floor(exact_fft_idx)-1, np.floor(exact_fft_idx)+3, dtype=int)
+    msv_rms = np.sqrt(np.sum(np.power(np.abs(u_fft_rms[fft_idx]),2)))
+    return msv_rms
