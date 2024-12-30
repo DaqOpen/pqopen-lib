@@ -155,16 +155,16 @@ class EventController(object):
                     if event["id"] in self._unfinished_events:
                         start_ts = self._unfinished_events[event["id"]].start_ts
                     else:
-                        start_ts = self._time_channel.read_data_by_index(event["start_sidx"], event["start_sidx"]+1)[0]
+                        start_ts = self._time_channel.read_data_by_index(event["start_sidx"], event["start_sidx"]+1)[0]/1e6
                     if event["stop_sidx"]:
-                        stop_ts = start_sidx_ts - int((start_acq_sidx - event["stop_sidx"])/self._sample_rate*1e6)
+                        stop_ts = self._time_channel.read_data_by_index(event["stop_sidx"], event["stop_sidx"]+1)[0]/1e6
                         # Delete finished event from map
                         if event["id"] in self._unfinished_events:
                             del self._unfinished_events[event["id"]]
                     else:
                         stop_ts = None
-                    single_event = Event(start_ts=start_ts/1e6,
-                                         stop_ts=stop_ts/1e6 if stop_ts else None,
+                    single_event = Event(start_ts=start_ts,
+                                         stop_ts=stop_ts if stop_ts else None,
                                          start_sidx=event["start_sidx"],
                                          stop_sidx=event["stop_sidx"],
                                          extrem_value=event["extrem_value"],
