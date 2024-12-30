@@ -50,19 +50,21 @@ class StorageEndpoint(object):
 class StoragePlan(object):
     """Defines a plan for storing data with specified intervals and channels."""
 
-    def __init__(self, storage_endpoint: StorageEndpoint, start_timestamp_us: int, interval_seconds=10, storage_name='aggregated_data'):
+    def __init__(self, storage_endpoint: StorageEndpoint, start_timestamp_us: int, interval_seconds=10, storage_name='aggregated_data', store_events=False):
         """
         Parameters:
             storage_endpoint: The storage endpoint to use.
             start_timestamp_us: Starting timestamp in µs
             interval_seconds: The interval for aggregation in seconds.
             storage_name: Name of the storage dataset.
+            store_events: Flag if events should be also stored or not
         """
         self.storage_endpoint = storage_endpoint
         self.interval_seconds = interval_seconds
         self.channels: List[Dict] = []
     
         self._storage_counter = 0
+        self._store_events_enabled = store_events
         self.next_storage_timestamp = start_timestamp_us
         self.next_storage_sample_index = 0
         self.last_storage_sample_index = 0
@@ -129,7 +131,8 @@ class StoragePlan(object):
         #self.last_storage_sample_index = last_included_sidx+1 if last_included_sidx else stop_sidx
 
     def store_event(self, event: Event):
-        self.storage_endpoint.write_event(event)
+        if self._store_events_enabled:
+            self.storage_endpoint.write_event(event)
 
 class StorageController(object):
     """Manages multiple storage plans and processes data for storage."""
@@ -230,8 +233,11 @@ class StorageController(object):
                     continue # ignore already known unfinished events
                 else:
                     self._unfinished_event_ids.append(event.id)
+                    logger.debug(f"add event_id {str(event.id)} to unfinished events")
             else:
+                logger.debug(f"finished event")
                 if event.id in self._unfinished_event_ids:
+                    logger.debug(f"remove event_id {str(event.id)} from unfinished events")
                     self._unfinished_event_ids.remove(event.id)
             for storage_plan in self.storage_plans:
                 storage_plan.store_event(event)
@@ -290,7 +296,8 @@ class StorageController(object):
             storage_plan = StoragePlan(storage_endpoint=self._configured_eps[sp_endpoint],
                                        start_timestamp_us=start_timestamp_us,
                                        interval_seconds=sp_config.get("interval_sec", 600),
-                                       storage_name=sp_name)
+                                       storage_name=sp_name,
+                                       store_events=sp_config.get("store_events", False))
             channels_to_store = sp_config.get("channels", [])
             if not channels_to_store:
                 # Add all available channels

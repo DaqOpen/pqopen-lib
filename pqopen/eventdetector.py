@@ -70,7 +70,8 @@ class EventDetectorLevelLow(EventDetector):
             if limit_idx > 0: # Add new event
                 events.append({"start_sidx": int(sidx[limit_idx]), "stop_sidx": None, "extrem_value": np.inf, "id": uuid.uuid4()})
             evt_stop_thr_idx = np.where(threshold_cross_idx > limit_idx)[0]
-            if evt_stop_thr_idx.any(): # complete event
+            if evt_stop_thr_idx.size > 0: # complete event
+                logger.debug("Event Completed")
                 evt_stop_idx = threshold_cross_idx[evt_stop_thr_idx[0]]
                 events[-1]["stop_sidx"] = int(sidx[evt_stop_idx])
                 events[-1]["extrem_value"] = min(events[-1]["extrem_value"], data[limit_idx:evt_stop_idx].min())
@@ -80,6 +81,8 @@ class EventDetectorLevelLow(EventDetector):
 
         if events and events[-1]["stop_sidx"] is None:
             self._unfinished_event = events[-1]
+        else:
+            self._unfinished_event = {}
         
         return events
 
@@ -107,7 +110,8 @@ class EventDetectorLevelHigh(EventDetector):
             if limit_idx > 0: # Add new event
                 events.append({"start_sidx": int(sidx[limit_idx]), "stop_sidx": None, "extrem_value": -np.inf, "id": uuid.uuid4()})
             evt_stop_thr_idx = np.where(threshold_cross_idx > limit_idx)[0]
-            if evt_stop_thr_idx.any(): # complete event
+            if evt_stop_thr_idx.size > 0: # complete event
+                logger.debug("Event Completed")
                 evt_stop_idx = threshold_cross_idx[evt_stop_thr_idx[0]]
                 events[-1]["stop_sidx"] = int(sidx[evt_stop_idx])
                 events[-1]["extrem_value"] = max(events[-1]["extrem_value"], data[limit_idx:evt_stop_idx].max())
@@ -117,6 +121,8 @@ class EventDetectorLevelHigh(EventDetector):
 
         if events and events[-1]["stop_sidx"] is None:
             self._unfinished_event = events[-1]
+        else:
+            self._unfinished_event = {}
         
         return events
         
@@ -136,17 +142,18 @@ class EventController(object):
     def process(self) -> List[Event]:
         start_acq_sidx = self._last_processed_sidx
         stop_acq_sidx = self._time_channel.sample_count - int(self.PROCESSING_DELAY_SECONDS*self._sample_rate)
+        start_sidx_ts = int(self._time_channel.read_data_by_index(start_acq_sidx, start_acq_sidx+1)[0])
         self._last_processed_sidx = stop_acq_sidx
         if stop_acq_sidx <= 0:
-            return None
+            return []
         all_events = []
         for event_detector in self._event_detectors:
             events = event_detector.process(start_acq_sidx, stop_acq_sidx)
             if events:
                 for event in events:
-                    start_ts = self._time_channel.read_data_by_index(event["start_sidx"], event["start_sidx"]+1)[0]
+                    start_ts = start_sidx_ts - int((start_acq_sidx - event["start_sidx"])/self._sample_rate*1e6)
                     if event["stop_sidx"]:
-                        stop_ts = self._time_channel.read_data_by_index(event["stop_sidx"], event["stop_sidx"]+1)[0]
+                        stop_ts = start_sidx_ts - int((start_acq_sidx - event["stop_sidx"])/self._sample_rate*1e6)
                     else:
                         stop_ts = None
                     single_event = Event(start_ts=start_ts/1e6,

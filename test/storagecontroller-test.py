@@ -65,7 +65,7 @@ class TestStorageController(unittest.TestCase):
     def test_one_storageplan_events(self):
         storage_endpoint = TestStorageEndpoint("Test", "1234")
         # Configure Storage Plan
-        storage_plan = StoragePlan(storage_endpoint, 0, interval_seconds=0)
+        storage_plan = StoragePlan(storage_endpoint, 0, interval_seconds=0, store_events=True)
         self.storage_controller.add_storage_plan(storage_plan)
 
         sample_rate = 1000
