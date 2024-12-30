@@ -135,6 +135,7 @@ class EventController(object):
         self._sample_rate = sample_rate
         self._event_detectors: List[EventDetector] = []
         self._last_processed_sidx = 0
+        self._unfinished_events: Dict[uuid.UUID: Event] = {}
     
     def add_event_detector(self, event_detector: EventDetector):
         self._event_detectors.append(event_detector)
@@ -151,9 +152,15 @@ class EventController(object):
             events = event_detector.process(start_acq_sidx, stop_acq_sidx)
             if events:
                 for event in events:
-                    start_ts = start_sidx_ts - int((start_acq_sidx - event["start_sidx"])/self._sample_rate*1e6)
+                    if event["id"] in self._unfinished_events:
+                        start_ts = self._unfinished_events[event["id"]].start_ts
+                    else:
+                        start_ts = self._time_channel.read_data_by_index(event["start_sidx"], event["start_sidx"]+1)[0]
                     if event["stop_sidx"]:
                         stop_ts = start_sidx_ts - int((start_acq_sidx - event["stop_sidx"])/self._sample_rate*1e6)
+                        # Delete finished event from map
+                        if event["id"] in self._unfinished_events:
+                            del self._unfinished_events[event["id"]]
                     else:
                         stop_ts = None
                     single_event = Event(start_ts=start_ts/1e6,
@@ -165,6 +172,9 @@ class EventController(object):
                                          type=event_detector._type,
                                          id=event["id"])
                     all_events.append(single_event)
+                    # Add unfinished event to map
+                    if single_event.stop_sidx is None:
+                        self._unfinished_events[single_event.id] = single_event
         return all_events
 
 
