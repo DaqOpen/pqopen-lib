@@ -271,6 +271,14 @@ class PowerSystem(object):
                     # Second half period
                     u_rms = np.sqrt(np.mean(np.power(u_values[len(u_values)//2:], 2)))
                     output_channel.put_data_single(phase_period_stop_sidx, u_rms)
+            for phys_type, output_channel in phase._calc_channels["one_period_ovlp"]["voltage"].items():
+                if phys_type == "trms":
+                    period_duration_in_sidx = (period_stop_sidx - period_start_sidx)
+                    u_hp_rms, _ = phase._calc_channels["half_period"]["voltage"]["trms"].read_data_by_acq_sidx(period_start_sidx - period_duration_in_sidx, period_stop_sidx+1)
+                    if u_hp_rms.size < 3:
+                        continue
+                    output_channel.put_data_single(phase_period_half_sidx, np.sqrt(np.mean(np.power(u_hp_rms[-3:-1],2))))
+                    output_channel.put_data_single(phase_period_stop_sidx, np.sqrt(np.mean(np.power(u_hp_rms[-2:],2))))
 
             if phase._i_channel:
                 i_values = phase._i_channel.read_data_by_index(period_start_sidx, period_stop_sidx)
@@ -479,8 +487,11 @@ class PowerPhase(object):
         # Create Voltage Channels
         self._calc_channels["half_period"]["voltage"] = {}
         self._calc_channels["one_period"]["voltage"] = {}
+        self._calc_channels["one_period_ovlp"]["voltage"] = {}
         self._calc_channels["multi_period"]["voltage"] = {}
+        self._calc_channels["half_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_hp_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_rms'.format(self.name), agg_type='rms', unit="V")
+        self._calc_channels["one_period_ovlp"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_hp_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["multi_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_rms'.format(self.name), agg_type='rms', unit="V")
 
         if "harmonics" in features and features["harmonics"]:
@@ -491,7 +502,6 @@ class PowerPhase(object):
             self._calc_channels["multi_period"]["voltage"]["thd"] = DataChannelBuffer('U{:s}_THD'.format(self.name), unit="%")
 
         if "fluctuation" in features and features["fluctuation"]:
-            self._calc_channels["half_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_hp_rms'.format(self.name), agg_type='rms', unit="V")
             self._calc_channels["multi_period"]["voltage"]["pst"] = DataChannelBuffer('U{:s}_pst'.format(self.name), agg_type='max', unit="")
 
         if "mains_signaling_voltage" in features and features["mains_signaling_voltage"] > 0:
