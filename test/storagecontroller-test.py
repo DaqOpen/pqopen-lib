@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
 from pqopen.storagecontroller import StorageController, StoragePlan, TestStorageEndpoint, DaqOpenServerStorageEndpoint, CsvStorageEndpoint
+from pqopen.eventdetector import EventController, EventDetectorLevelLow
 
 
 class TestStorageController(unittest.TestCase):
@@ -60,6 +61,34 @@ class TestStorageController(unittest.TestCase):
         expected_data_list0["scalar1"]["timestamps"] = np.arange(0,5000000, 100000).tolist()
 
         self.assertEqual(storage_endpoint._data_series_list[0], expected_data_list0)
+
+    def test_one_storageplan_events(self):
+        storage_endpoint = TestStorageEndpoint("Test", "1234")
+        # Configure Storage Plan
+        storage_plan = StoragePlan(storage_endpoint, 0, interval_seconds=0)
+        self.storage_controller.add_storage_plan(storage_plan)
+
+        sample_rate = 1000
+        t = np.arange(0, 0.1, 1/sample_rate)*1e6
+        time_channel = AcqBuffer()
+        time_channel.put_data(t)
+        
+        data_channel_1 = DataChannelBuffer("data_channel_1")
+        acq_sidx = [0,  10, 20, 30, 40, 50, 60,  70,  80, 90]
+        values =  [100, 90, 80, 70, 80, 90, 100, 100, 60, 100]
+        data_channel_1.put_data_multi(acq_sidx, values)
+
+        detector_1 = EventDetectorLevelLow(95, 2, data_channel_1)
+
+        event_controller = EventController(time_channel, sample_rate)
+        event_controller.PROCESSING_DELAY_SECONDS = 0
+        event_controller.add_event_detector(detector_1)
+
+        events = event_controller.process()
+
+        self.storage_controller.process_events(events)
+
+        self.assertEqual(storage_endpoint._event_list[0].start_ts, 0.01)
 
 class TestStorageEndpoints(unittest.TestCase):
     def setUp(self):

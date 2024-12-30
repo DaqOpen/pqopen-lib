@@ -1,5 +1,6 @@
 import numpy as np
 from pqopen.helper import floor_timestamp
+from pqopen.eventdetector import Event
 from daqopen.channelbuffer import DataChannelBuffer, AcqBuffer
 from persistmq.client import PersistClient
 from pathlib import Path
@@ -8,6 +9,7 @@ import logging
 import json
 import gzip
 import paho.mqtt.client as mqtt
+
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,9 @@ class StorageEndpoint(object):
             timestamp_us: The timestamp in microseconds for the aggregated data.
             interval_seconds: The aggregation interval in seconds.
         """
+        pass
+
+    def write_event(self, event: Event):
         pass
 
 class StoragePlan(object):
@@ -112,6 +117,7 @@ class StoragePlan(object):
             stop_sidx: The stopping sample index for aggregation.
         """
         data = {}
+        # TODO: Only incude next if timestamp is not round
         for channel in self.channels:
             channel_data, last_included_sidx = channel["channel"].read_agg_data_by_acq_sidx(
                 channel["last_store_sidx"], stop_sidx, include_next=True
@@ -121,6 +127,9 @@ class StoragePlan(object):
 
         self.storage_endpoint.write_aggregated_data(data, self.next_storage_timestamp, self.interval_seconds)
         #self.last_storage_sample_index = last_included_sidx+1 if last_included_sidx else stop_sidx
+
+    def store_event(self, event: Event):
+        self.storage_endpoint.write_event(event)
 
 class StorageController(object):
     """Manages multiple storage plans and processes data for storage."""
@@ -136,9 +145,10 @@ class StorageController(object):
         """
         self.time_channel = time_channel
         self.sample_rate = sample_rate
-        self.storage_plans = []
+        self.storage_plans: List[StoragePlan] = []
         self._last_processed_sidx = 0
         self._last_processed_sidx = 0
+        self._unfinished_event_ids = []
 
     def add_storage_plan(self, storage_plan: StoragePlan):
         """
@@ -206,6 +216,25 @@ class StorageController(object):
                                                                       interval_seconds=storage_plan.interval_seconds,
                                                                       ts_resolution="us"))
             storage_plan._storage_counter += 1
+
+    def process_events(self, events: List[Event]):
+        """
+        Process events to be stored
+
+        Parameters:
+            events: List of events to be stored by each storage plan
+        """
+        for event in events:
+            if event.stop_ts is None:
+                if event.id in self._unfinished_event_ids:
+                    continue # ignore already known unfinished events
+                else:
+                    self._unfinished_event_ids.append(event.id)
+            else:
+                if event.id in self._unfinished_event_ids:
+                    self._unfinished_event_ids.remove(event.id)
+            for storage_plan in self.storage_plans:
+                storage_plan.store_event(event)
             
     def setup_endpoints_and_storageplans(self, 
                                          endpoints: dict, 
@@ -287,12 +316,16 @@ class TestStorageEndpoint(StorageEndpoint):
         super().__init__(name, measurement_id)
         self._data_series_list = []
         self._aggregated_data_list = []
+        self._event_list = []
 
     def write_data_series(self, data):
         self._data_series_list.append(data)
 
     def write_aggregated_data(self, data, timestamp_us, interval_seconds):
         self._aggregated_data_list.append({"data": data, "timestamp_us": timestamp_us, "interval_sec": interval_seconds})
+
+    def write_event(self, event):
+        self._event_list.append(event)
 
 
 class MqttStorageEndpoint(StorageEndpoint):
@@ -352,7 +385,31 @@ class MqttStorageEndpoint(StorageEndpoint):
         else:
             self._client.publish(f"dt/pqopen/{self._device_id:s}/dataseries/json",
                             json_item.encode('utf-8'), qos=2)
+            
+    def write_event(self, event):
+        """
+        Write event data message
 
+        Parameters:
+            event: The event to be writtem´n
+        """
+        event_obj = {
+            "type": "event",
+            "measurement_uuid": self.measurement_id,
+            "event_type": event.type,
+            "timestamp": event.start_ts,
+            "channel": event.channel,
+            "data": {"duration": (event.stop_ts - event.start_ts) if event.stop_ts else None,
+                     "extrem_value": event.extrem_value,
+                     "id": str(event.id)}
+        }
+        json_item = json.dumps(event_obj)
+        if self._compression:
+            self._client.publish(f"dt/pqopen/{self._device_id:s}/event/gjson",
+                            gzip.compress(json_item.encode('utf-8')), qos=2)
+        else:
+            self._client.publish(f"dt/pqopen/{self._device_id:s}/event/json",
+                            json_item.encode('utf-8'), qos=2)
 
 class DaqOpenServerStorageEndpoint(StorageEndpoint):
     """Represents a DaqOpen server endpoint (MQTT) for transferring data."""
