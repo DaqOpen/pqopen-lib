@@ -261,3 +261,25 @@ def calc_mains_signaling_voltage(u_fft_rms: np.ndarray, msv_freq: float, num_per
     fft_idx = np.arange(np.floor(exact_fft_idx)-1, np.floor(exact_fft_idx)+3, dtype=int)
     msv_rms = np.sqrt(np.sum(np.power(np.abs(u_fft_rms[fft_idx]),2)))
     return msv_rms
+
+def calc_under_deviation(u_rms: np.ndarray, u_din: float):
+    """
+    Calculate Underdeviation according to IEC 61000-4-30
+
+    Args:
+        u_din: Dimensioned voltage (typ. nominal voltage)
+        u_rms: Array of n-period voltage rms values
+    """
+    u_under = (u_din - np.sqrt(np.mean(np.power(np.clip(u_rms, a_min=None, a_max=u_din),2))))/u_din*100
+    return u_under
+
+def calc_over_deviation(u_rms: np.ndarray, u_din: float):
+    """
+    Calculate Overdeviation according to IEC 61000-4-30
+
+    Args:
+        u_din: Dimensioned voltage (typ. nominal voltage)
+        u_rms: Array of n-period voltage rms values
+    """
+    u_over  = (np.sqrt(np.mean(np.power(np.clip(u_rms, a_min=u_din, a_max=None),2))) - u_din)/u_din*100
+    return u_over

@@ -182,6 +182,24 @@ class TestPowerPowerQualityMsv(unittest.TestCase):
 
         self.assertAlmostEqual(u_msv_rms, 1, places=2)
 
+class TestPowerPowerQualityUnderOverDev(unittest.TestCase):
+    def setUp(self):
+        ...
+    
+    def test_under_deviation(self):
+        u_rms = np.ones(10)
+        u_rms[:5] *= 0.7875
+        u_under = pq.calc_under_deviation(u_rms, 1)
+
+        self.assertAlmostEqual(u_under, 10, places=2)
+
+    def test_over_deviation(self):
+        u_rms = np.ones(10)
+        u_rms[:5] *= 1.1917
+        u_over = pq.calc_over_deviation(u_rms, 1)
+
+        self.assertAlmostEqual(u_over, 10, places=2)
+
          
 if __name__ == "__main__":
     unittest.main()

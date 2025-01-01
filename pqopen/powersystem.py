@@ -76,11 +76,13 @@ class PowerSystem(object):
         self._zcd_minimum_frequency = zcd_minimum_freq
         self.nominal_frequency = nominal_frequency
         self.nper = nper
+        self._nominal_voltage = None
         self._phases: List[PowerPhase] = []
         self._features = {"harmonics": 0, 
                           "fluctuation": False,
                           "nper_abs_time_sync": False,
-                          "mains_signaling_voltage": 0}
+                          "mains_signaling_voltage": 0,
+                          "under_over_deviation": 0}
         self._prepare_calc_channels()
         self.output_channels = {}
         self._last_processed_sidx = 0
@@ -154,6 +156,17 @@ class PowerSystem(object):
             frequency: Expected frequency of signaling voltage
         """
         self._features["mains_signaling_voltage"] = frequency
+        self._update_calc_channels()
+
+    def enable_under_over_deviation_calculation(self, u_din: float):
+        """
+        Enables calculation of under and overdeviation
+        Complies to IEC 61000-4-30
+
+        Parameters:
+            u_din: Dimensioned voltage (typ. nominal voltage)
+        """
+        self._features["under_over_deviation"] = u_din
         self._update_calc_channels()
 
     def _resync_nper_abs_time(self, zc_idx: int):
@@ -308,6 +321,7 @@ class PowerSystem(object):
         u_cplx = []
         for phase in self._phases:
             u_values = phase._u_channel.read_data_by_index(start_sidx, stop_sidx)
+            u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
             if self._features["harmonics"]:
                 data_fft_U = pq.resample_and_fft(u_values)
                 u_h_mag, u_h_phi = pq.calc_harmonics(data_fft_U, self.nper, self._features["harmonics"])
@@ -315,7 +329,6 @@ class PowerSystem(object):
                 u_cplx.append(u_h_mag[1]*np.exp(1j*(u_h_phi[1]-phi_ref)*np.pi/180))
             for phys_type, output_channel in phase._calc_channels["multi_period"]["voltage"].items():
                 if phys_type == "trms":
-                    u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
                     output_channel.put_data_single(stop_sidx, u_rms)
                 if phys_type == "fund_rms":
                     output_channel.put_data_single(stop_sidx, u_h_mag[1])
@@ -335,16 +348,20 @@ class PowerSystem(object):
                                                                 num_periods=self.nper,
                                                                 f_fund=self._samplerate/len(u_values)*self.nper)
                     output_channel.put_data_single(stop_sidx, u_msv_rms)
-
+                if phys_type == "under":
+                    output_channel.put_data_single(stop_sidx, u_rms)
+                if phys_type == "over":
+                    output_channel.put_data_single(stop_sidx, u_rms)
+                
             if phase._i_channel:
                 i_values = phase._i_channel.read_data_by_index(start_sidx, stop_sidx)
+                i_rms = np.sqrt(np.mean(np.power(i_values, 2)))
                 if self._features["harmonics"]:
                     data_fft_I = pq.resample_and_fft(i_values)
                     i_h_mag, i_h_phi = pq.calc_harmonics(data_fft_I, self.nper, self._features["harmonics"])
                     i_ih_mag = pq.calc_interharmonics(data_fft_I, self.nper, self._features["harmonics"])
                 for phys_type, output_channel in phase._calc_channels["multi_period"]["current"].items():
                     if phys_type == "trms":
-                        i_rms = np.sqrt(np.mean(np.power(i_values, 2)))
                         output_channel.put_data_single(stop_sidx, i_rms)
                     if phys_type == "fund_rms":
                         output_channel.put_data_single(stop_sidx, i_h_mag[1])
@@ -506,6 +523,10 @@ class PowerPhase(object):
 
         if "mains_signaling_voltage" in features and features["mains_signaling_voltage"] > 0:
             self._calc_channels["multi_period"]["voltage"]["msv_mag"] = DataChannelBuffer('U{:s}_msv_rms'.format(self.name), agg_type='max', unit="V")
+
+        if "under_over_deviation" in features and features["under_over_deviation"] > 0:
+            self._calc_channels["multi_period"]["voltage"]["under"] = DataChannelBuffer('U{:s}_under'.format(self.name), agg_type=None, unit="%", agg_function=pq.calc_under_deviation, u_din=features["under_over_deviation"])
+            self._calc_channels["multi_period"]["voltage"]["over"] = DataChannelBuffer('U{:s}_over'.format(self.name), agg_type=None, unit="%", agg_function=pq.calc_over_deviation, u_din=features["under_over_deviation"])
 
         # Create Current Channels
         if self._i_channel:
