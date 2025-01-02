@@ -373,12 +373,21 @@ class PowerSystem(object):
                         output_channel.put_data_single(stop_sidx, i_ih_mag)
                     if phys_type == "thd":
                         output_channel.put_data_single(stop_sidx, pq.calc_thd(i_h_mag))
-                    
+                # Power Values    
+                p_avg = np.mean(u_values * i_values)
                 for phys_type, output_channel in phase._calc_channels["multi_period"]["power"].items():
                     if phys_type == "p_avg":
-                        p_avg = np.mean(u_values * i_values)
                         output_channel.put_data_single(stop_sidx, p_avg)
                         p_sum += p_avg
+                    if phys_type == "q_tot":
+                        q_tot = np.sqrt((u_rms * i_rms)**2 - p_avg**2)
+                        output_channel.put_data_single(stop_sidx, q_tot)
+                    if phys_type == "p_fund_mag":
+                        p_fund_mag = u_h_mag[1] * i_h_mag[1] * np.cos(np.deg2rad(u_h_phi[1] - i_h_phi[1]))
+                        output_channel.put_data_single(stop_sidx, p_fund_mag)
+                    if phys_type == "q_fund_mag":
+                        q_fund_mag = u_h_mag[1] * i_h_mag[1] * np.sin(np.deg2rad(u_h_phi[1] - i_h_phi[1]))
+                        output_channel.put_data_single(stop_sidx, q_fund_mag)
 
         # Caclulate Power System's SUM
         if "p_avg" in self._calc_channels["multi_period"]["power"]:
@@ -499,7 +508,13 @@ class PowerPhase(object):
         self._calc_channels = {}
         self._voltage_fluctuation_processor: pq.VoltageFluctuation = None
 
-    def update_calc_channels(self, features):
+    def update_calc_channels(self, features: dict):
+        """
+        Update the calculation channels depending of active features
+
+        Parameters:
+            features: Dict of features
+        """
         self._calc_channels = {"half_period": {}, "one_period": {}, "one_period_ovlp": {}, "multi_period": {}}
         # Create Voltage Channels
         self._calc_channels["half_period"]["voltage"] = {}
@@ -534,6 +549,8 @@ class PowerPhase(object):
             self._calc_channels["multi_period"]["current"] = {}
             self._calc_channels["one_period"]["current"]["trms"] = DataChannelBuffer('I{:s}_1p_rms'.format(self.name), agg_type='rms', unit="A")
             self._calc_channels["multi_period"]["current"]["trms"] = DataChannelBuffer('I{:s}_rms'.format(self.name), agg_type='rms', unit="A")
+            self._calc_channels["one_period"]["power"] = {}
+            self._calc_channels["multi_period"]["power"] = {}
 
             if "harmonics" in features and features["harmonics"]:
                 self._calc_channels["multi_period"]["current"]["fund_rms"] = DataChannelBuffer('I{:s}_H1_rms'.format(self.name), agg_type='rms', unit="A")
@@ -541,13 +558,10 @@ class PowerPhase(object):
                 self._calc_channels["multi_period"]["current"]["harm_rms"] = DataChannelBuffer('I{:s}_H_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="A")
                 self._calc_channels["multi_period"]["current"]["iharm_rms"] = DataChannelBuffer('I{:s}_IH_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="A")
                 self._calc_channels["multi_period"]["current"]["thd"] = DataChannelBuffer('I{:s}_THD'.format(self.name), unit="%")
+                self._calc_channels["multi_period"]["power"]['p_fund_mag'] = DataChannelBuffer('P{:s}_H1'.format(self.name), agg_type='mean', unit="W")
+                self._calc_channels["multi_period"]["power"]['q_fund_mag'] = DataChannelBuffer('Q{:s}_H1'.format(self.name), agg_type='mean', unit="var")
 
             # Create Power Channels
-            self._calc_channels["one_period"]["power"] = {}
-            self._calc_channels["multi_period"]["power"] = {}
             self._calc_channels["one_period"]["power"]['p_avg'] = DataChannelBuffer('P{:s}_1p'.format(self.name), agg_type='mean', unit="W")
-            self._calc_channels["one_period"]["power"]['q_avg'] = DataChannelBuffer('Q{:s}_1p'.format(self.name), agg_type='mean', unit="var")
             self._calc_channels["multi_period"]["power"]['p_avg'] = DataChannelBuffer('P{:s}'.format(self.name), agg_type='mean', unit="W")
-            self._calc_channels["multi_period"]["power"]['q_avg'] = DataChannelBuffer('Q{:s}'.format(self.name), agg_type='mean', unit="var")
-            self._calc_channels["multi_period"]["power"]['p_fund_mag'] = DataChannelBuffer('P{:s}_H1'.format(self.name), agg_type='mean', unit="W")
-            self._calc_channels["multi_period"]["power"]['q_fund_mag'] = DataChannelBuffer('Q{:s}_H1'.format(self.name), agg_type='mean', unit="var")
+            self._calc_channels["multi_period"]["power"]['q_tot'] = DataChannelBuffer('Q{:s}_t'.format(self.name), agg_type='mean', unit="var")

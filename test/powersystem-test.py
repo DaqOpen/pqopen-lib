@@ -242,7 +242,7 @@ class TestPowerSystemCalculationThreePhase(unittest.TestCase):
         # Create PowerSystem instance
         self.power_system = PowerSystem(
             zcd_channel=self.u1_channel,
-            input_samplerate=1000.0,
+            input_samplerate=10000.0,
             zcd_threshold=0.1
         )
         # Add Phases
@@ -273,8 +273,11 @@ class TestPowerSystemCalculationThreePhase(unittest.TestCase):
 
         expected_p_avg = expected_p1_avg + expected_p2_avg + expected_p3_avg
 
-        expected_unbal_0 = np.array(np.zeros(4)) + 43.456
-        expected_unbal_2 = np.array(np.zeros(4)) + 48.153
+        expected_q1_t = np.array(np.zeros(4)) + 1.0*2.0*np.sin(np.arccos(0.5))
+        expected_q1_fund = np.array(np.zeros(4)) - 1.0*2.0*np.sin(np.arccos(0.5))
+
+        expected_unbal_0 = np.array(np.zeros(4)) + 56.919
+        expected_unbal_2 = np.array(np.zeros(4)) + 61.465
 
         expected_sidx = np.arange(1,5) * 0.2 * self.power_system._samplerate + 0.02 * self.power_system._samplerate
 
@@ -332,6 +335,14 @@ class TestPowerSystemCalculationThreePhase(unittest.TestCase):
         # Check Overall Power
         p_avg, sidx = self.power_system.output_channels["P"].read_data_by_acq_sidx(0, u1_values.size)
         self.assertIsNone(np.testing.assert_array_almost_equal(p_avg, expected_p_avg, 3))
+
+        # Check Reactive Power
+        # Check Q1_t
+        q1_t, sidx = self.power_system.output_channels["Q1_t"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_array_almost_equal(q1_t, expected_q1_t, 3))
+        # Check Q1_fund
+        q1_fund, sidx = self.power_system.output_channels["Q1_H1"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_array_almost_equal(q1_fund, expected_q1_fund, 3))
 
         # Check Balance
         u0, sidx = self.power_system.output_channels["U_unbal_0"].read_data_by_acq_sidx(0, u1_values.size)
