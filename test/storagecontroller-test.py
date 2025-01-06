@@ -10,7 +10,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
-from pqopen.storagecontroller import StorageController, StoragePlan, TestStorageEndpoint, DaqOpenServerStorageEndpoint, CsvStorageEndpoint
+from pqopen.storagecontroller import StorageController, StoragePlan, TestStorageEndpoint, CsvStorageEndpoint
 from pqopen.eventdetector import EventController, EventDetectorLevelLow
 
 
@@ -97,27 +97,6 @@ class TestStorageEndpoints(unittest.TestCase):
         self.array_channel = DataChannelBuffer("array1", sample_dimension=10)
         self.samplerate = 1000
         self.storage_controller = StorageController(self.time_channel, self.samplerate)
-
-    def test_persist_mq_endpoint(self):
-        # Define Endpoint
-        test_endpoint = DaqOpenServerStorageEndpoint(name="Test",
-                                                     measurement_id="1234",
-                                                     device_id="b990cdff-87fb-4f82-b443-864ce7ba1731",
-                                                     mqtt_host="localhost",
-                                                     client_id="testclient",
-                                                     cache_path=Path("/tmp/"))
-        # Configure Storage Plan
-        storage_plan = StoragePlan(test_endpoint, 0, interval_seconds=1)
-        storage_plan.add_channel(self.scalar_channel)
-        self.storage_controller.add_storage_plan(storage_plan)
-
-        self.time_channel.put_data(np.arange(0, 10_000_000, 1e6//self.samplerate))
-        for i in range(100):
-            self.scalar_channel.put_data_single(i*100, i)
-
-        self.storage_controller.process()
-        # Wait until finished!!!
-        time.sleep(1)  
 
     def test_csv_endpoint(self):
         # Define Endpoint

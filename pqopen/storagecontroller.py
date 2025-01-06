@@ -270,14 +270,6 @@ class StorageController(object):
             if ep_type == "csv":
                 csv_storage_endpoint = CsvStorageEndpoint("csv", measurement_id, "data")
                 self._configured_eps["csv"] = csv_storage_endpoint
-            elif ep_type == "daqopen-server":
-                daqopenserver_endpoint = DaqOpenServerStorageEndpoint(name="daqopen-server", 
-                                                                 measurement_id=measurement_id, 
-                                                                 device_id=device_id, 
-                                                                 mqtt_host=ep_config.get("hostname", "localhost"), 
-                                                                 client_id=client_id, 
-                                                                 cache_path=Path("/tmp/"))
-                self._configured_eps["daqopen-server"] = daqopenserver_endpoint
             elif ep_type == "mqtt":
                 mqtt_storage_endpoint = MqttStorageEndpoint(name="mqtt", 
                                                                  measurement_id=measurement_id, 
@@ -417,44 +409,6 @@ class MqttStorageEndpoint(StorageEndpoint):
         else:
             self._client.publish(f"dt/pqopen/{self._device_id:s}/event/json",
                             json_item.encode('utf-8'), qos=2)
-
-class DaqOpenServerStorageEndpoint(StorageEndpoint):
-    """Represents a DaqOpen server endpoint (MQTT) for transferring data."""
-    def __init__(self, name: str, measurement_id: str, device_id: str, mqtt_host: str, client_id: str, cache_path: str | Path):
-        """ Create a persistMQ storage endpoint
-
-        Parameters:
-            name: The name of the endpoint
-            measurement_id: Id of the measurement, will be indcluded in the transmitted data
-            device_id: The device Id
-            mqtt_host: hostname of the MQTT broker.
-            client_id: name to be used for mqtt client identification
-            cache_path: Data path for the caching for underlying persistMq
-        """
-        super().__init__(name, measurement_id)
-        self._device_id = device_id
-        self._client = PersistClient(client_id=client_id, cache_path=cache_path)
-        self._client.connect_async(mqtt_host=mqtt_host)
-
-    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int):
-        """ Write an aggregated data message
-
-        Parameters:
-            data: The data object to be sent
-            timestamp_us: Timestamp (in µs) of the data set
-            interval_seconds: Aggregation intervall, used as data tag
-        """
-        agg_data_obj = {'type': 'aggregated_data',
-                        'measurement_uuid': self.measurement_id,
-                        'interval_sec': interval_seconds,
-                        'timestamp': timestamp_us/1e6,
-                        'data': data}
-        json_item = json.dumps(agg_data_obj)
-        self._client.publish(f"dt/pqopen/{self._device_id:s}/agg_data/gjson",
-                           gzip.compress(json_item.encode('utf-8')))
-        
-    def __del__(self):
-        self._client.stop()
 
 class CsvStorageEndpoint(StorageEndpoint):
     """Represents a csv storage endpoint"""
