@@ -1,6 +1,5 @@
 import numpy as np
 from daqopen.channelbuffer import DataChannelBuffer, AcqBuffer
-from persistmq.client import PersistClient
 from pathlib import Path
 from typing import List, Dict
 import logging
