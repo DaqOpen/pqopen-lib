@@ -268,7 +268,7 @@ class StorageController(object):
         self._configured_eps = {}
         for ep_type, ep_config in endpoints.items():
             if ep_type == "csv":
-                csv_storage_endpoint = CsvStorageEndpoint("csv", measurement_id, "data")
+                csv_storage_endpoint = CsvStorageEndpoint("csv", measurement_id, ep_config.get("data_dir", "/tmp/"))
                 self._configured_eps["csv"] = csv_storage_endpoint
             elif ep_type == "mqtt":
                 mqtt_storage_endpoint = MqttStorageEndpoint(name="mqtt", 
