@@ -20,7 +20,7 @@ Imports:
 """
 
 import numpy as np
-from typing import List
+from typing import List, Dict
 import logging
 
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
@@ -84,7 +84,7 @@ class PowerSystem(object):
                           "mains_signaling_voltage": 0,
                           "under_over_deviation": 0}
         self._prepare_calc_channels()
-        self.output_channels = {}
+        self.output_channels: Dict[str, DataChannelBuffer] = {}
         self._last_processed_sidx = 0
         self._zero_cross_detector = ZeroCrossDetector(f_cutoff=self._zcd_cutoff_freq,
                                                       threshold=self._zcd_threshold,
@@ -380,7 +380,7 @@ class PowerSystem(object):
                         output_channel.put_data_single(stop_sidx, p_avg)
                         p_sum += p_avg
                     if phys_type == "q_tot":
-                        q_tot = np.sqrt((u_rms * i_rms)**2 - p_avg**2)
+                        q_tot = np.sqrt(max(0,(u_rms * i_rms)**2 - p_avg**2))
                         output_channel.put_data_single(stop_sidx, q_tot)
                     if phys_type == "p_fund_mag":
                         p_fund_mag = u_h_mag[1] * i_h_mag[1] * np.cos(np.deg2rad(u_h_phi[1] - i_h_phi[1]))
