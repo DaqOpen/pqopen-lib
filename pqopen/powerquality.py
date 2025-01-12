@@ -283,3 +283,75 @@ def calc_over_deviation(u_rms: np.ndarray, u_din: float):
     """
     u_over  = (np.sqrt(np.mean(np.power(np.clip(u_rms, a_min=u_din, a_max=None),2))) - u_din)/u_din*100
     return u_over
+
+class MainsSignalingVoltageTracer(object):
+    def __init__(self, 
+                 samplerate: float, 
+                 bp_lo_cutoff_freq: float = 370, 
+                 bp_hi_cutoff_freq: float = 390, 
+                 lp_cutoff_freq = 20, 
+                 filter_order = 4, 
+                 threshold = 1):
+        """
+        Class for tracing the mains signaling voltage as binary signal
+
+        Parameters
+            samplerate: The samplerate of the waveform data
+            bp_lo_cutoff_freq: Bandpass filter, lower end cutoff frequency
+            bp_hi_cutoff_freq: Bandpass filter, upper end cutoff frequency
+            lp_cutoff_freq: Smooting lowpass filter cutoff frequency
+            filter_order: Filter order
+            threshold: Detection Threshold in engineering unit
+        """
+        self.samplerate = samplerate
+        self.bp_lo_cutoff_freq = bp_lo_cutoff_freq
+        self.bp_hi_cutoff_freq = bp_hi_cutoff_freq
+        self.lp_cutoff_freq = lp_cutoff_freq
+        self.filter_order = filter_order
+        self.threshold = threshold
+        self.previous_value = 0
+        self._prepare_filter()
+    
+    def _prepare_filter(self):
+        # Prepare Bandpass Filter
+        Wn1 = self.bp_lo_cutoff_freq*(2*np.pi)
+        Wn2 = self.bp_hi_cutoff_freq*(2*np.pi)
+        bp_b, bp_a = signal.iirfilter(self.filter_order, Wn=[Wn1, Wn2], analog=True, btype='band')
+        self.coeff_bp_b_z, self.coeff_bp_a_z = signal.bilinear(bp_b, bp_a, self.samplerate)
+        self.bp_filter_zi = np.zeros(len(self.coeff_bp_b_z)-1)
+        
+        # Prepare Lowpass Filter
+        Wn = self.lp_cutoff_freq*(2*np.pi)
+        lp_b, lp_a = signal.iirfilter(self.filter_order, Wn=Wn, analog=True, btype='lowpass')
+        self.coeff_lp_b_z, self.coeff_lp_a_z = signal.bilinear(lp_b, lp_a, self.samplerate)
+        self.lp_filter_zi = np.zeros(len(self.coeff_lp_b_z)-1)
+
+    def _do_bp_filter(self, data: np.ndarray):
+        filtered_data, self.bp_filter_zi = signal.lfilter(self.coeff_bp_b_z, 
+                                                       self.coeff_bp_a_z, 
+                                                       data, 
+                                                       zi=self.bp_filter_zi)
+        return filtered_data
+
+    def _do_lp_filter(self, data: np.ndarray):
+        filtered_data, self.lp_filter_zi = signal.lfilter(self.coeff_lp_b_z, 
+                                                       self.coeff_lp_a_z, 
+                                                       data, 
+                                                       zi=self.lp_filter_zi)
+        return filtered_data
+
+    def process(self, data: np.ndarray) -> float | None:
+        hp_filtered_data = self._do_bp_filter(data)
+        rectified_data = np.sqrt(np.power(hp_filtered_data,2))
+        lp_filtered_data =  self._do_lp_filter(rectified_data)
+        value = lp_filtered_data.mean()
+        if  value > self.threshold and self.previous_value <= self.threshold:
+            # Rising edge detected
+            ret_val = 1.0
+        elif value < self.threshold and self.previous_value >= self.threshold:
+            # Falling edge detected
+            ret_val = 0.0
+        else:
+            ret_val = None
+        self.previous_value = value
+        return ret_val

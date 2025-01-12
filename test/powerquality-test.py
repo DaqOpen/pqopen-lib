@@ -200,6 +200,34 @@ class TestPowerPowerQualityUnderOverDev(unittest.TestCase):
 
         self.assertAlmostEqual(u_over, 10, places=2)
 
+class TestPowerPowerQualityMsvTracer(unittest.TestCase):
+    def setUp(self):
+        self.samplerate = 5000
+        self.f_fund = 50.0
+        self.duration = 1.0
+        self.t = np.linspace(0, self.duration, self.samplerate, endpoint=False)
+        self.u1_base = np.sqrt(2)*np.sin(2*np.pi*self.f_fund*self.t)
+    
+    def test_simple_pattern(self):
+        msv_tracer = pq.MainsSignalingVoltageTracer(
+            samplerate=self.samplerate,
+            bp_lo_cutoff_freq=373,
+            bp_hi_cutoff_freq=393,
+            lp_cutoff_freq=20,
+            threshold=0.01,
+            filter_order=2)
+        u1 = self.u1_base
+        u1[1000:2000] += 0.02*np.sqrt(2)*np.sin(2*np.pi*383*self.t[1000:2000])
+        expected_msv_bit_list = [(12, 1), (22, 0)]
+        samples_per_period = int(self.samplerate/self.f_fund)
+        msv_bit_list = []
+        for period_idx in range(int(self.f_fund/self.duration)):
+            msv_bit = msv_tracer.process(u1[period_idx*samples_per_period:(period_idx+1)*samples_per_period])
+            if msv_bit is not None:
+                msv_bit_list.append((period_idx, msv_bit))
+        
+        self.assertEqual(expected_msv_bit_list, msv_bit_list)
+
          
 if __name__ == "__main__":
     unittest.main()

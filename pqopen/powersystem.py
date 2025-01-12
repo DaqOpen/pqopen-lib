@@ -82,7 +82,8 @@ class PowerSystem(object):
                           "fluctuation": False,
                           "nper_abs_time_sync": False,
                           "mains_signaling_voltage": 0,
-                          "under_over_deviation": 0}
+                          "under_over_deviation": 0,
+                          "mains_signaling_tracer": {}}
         self._prepare_calc_channels()
         self.output_channels: Dict[str, DataChannelBuffer] = {}
         self._last_processed_sidx = 0
@@ -169,6 +170,18 @@ class PowerSystem(object):
         self._features["under_over_deviation"] = u_din
         self._update_calc_channels()
 
+    def enable_mains_signaling_tracer(self, frequency: float, threshold: float):
+        """
+        Enables high res tracing of mains signaling voltage
+        for potential data decoding.
+
+        Parameters:
+            frequency: Expected frequency of signaling voltage
+            threshold: Binary conversion threshold in volt
+        """
+        self._features["mains_signaling_tracer"] = {"frequency": frequency, "threshold": threshold}
+        self._update_calc_channels()
+
     def _resync_nper_abs_time(self, zc_idx: int):
         if not self._features["nper_abs_time_sync"]:
             return None
@@ -215,6 +228,17 @@ class PowerSystem(object):
                     phase._voltage_fluctuation_processor = pq.VoltageFluctuation(samplerate=self._samplerate,
                                                                                  nominal_volt=self._nominal_voltage,
                                                                                  nominal_freq=self.nominal_frequency)
+                    
+            if self._features["mains_signaling_tracer"]:
+                # Enable the mains signaling voltage tracer
+                for phase in self._phases:
+                    phase._mains_signaling_tracer = pq.MainsSignalingVoltageTracer(
+                        samplerate=self._samplerate/10, # Use downsampled signal for less computing power
+                        bp_lo_cutoff_freq=self._features["mains_signaling_tracer"]["frequency"]-10,
+                        bp_hi_cutoff_freq=self._features["mains_signaling_tracer"]["frequency"]+10,
+                        filter_order=4,
+                        threshold=1.0)
+            
     
     def process(self):
         """
@@ -276,6 +300,10 @@ class PowerSystem(object):
                 if phys_type == "trms":
                     u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
                     output_channel.put_data_single(phase_period_stop_sidx, u_rms)
+                if phys_type == "msv_bit":
+                    msv_bit = phase._mains_signaling_tracer.process(u_values[::10])
+                    if msv_bit is not None:
+                        output_channel.put_data_single(phase_period_stop_sidx, msv_bit)
             for phys_type, output_channel in phase._calc_channels["half_period"]["voltage"].items():
                 if phys_type == "trms":
                     # First half period
@@ -507,6 +535,7 @@ class PowerPhase(object):
         self.name = name
         self._calc_channels = {}
         self._voltage_fluctuation_processor: pq.VoltageFluctuation = None
+        self._mains_signaling_tracer: pq.MainsSignalingVoltageTracer = None
 
     def update_calc_channels(self, features: dict):
         """
@@ -542,6 +571,9 @@ class PowerPhase(object):
         if "under_over_deviation" in features and features["under_over_deviation"] > 0:
             self._calc_channels["multi_period"]["voltage"]["under"] = DataChannelBuffer('U{:s}_under'.format(self.name), agg_type=None, unit="%", agg_function=pq.calc_under_deviation, u_din=features["under_over_deviation"])
             self._calc_channels["multi_period"]["voltage"]["over"] = DataChannelBuffer('U{:s}_over'.format(self.name), agg_type=None, unit="%", agg_function=pq.calc_over_deviation, u_din=features["under_over_deviation"])
+
+        if "mains_signaling_tracer" in features and features["mains_signaling_tracer"]:
+            self._calc_channels["one_period"]["voltage"]["msv_bit"] = DataChannelBuffer('U{:s}_msv_bit'.format(self.name), unit="")
 
         # Create Current Channels
         if self._i_channel:
