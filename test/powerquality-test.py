@@ -214,7 +214,7 @@ class TestPowerPowerQualityMsvTracer(unittest.TestCase):
             bp_lo_cutoff_freq=373,
             bp_hi_cutoff_freq=393,
             lp_cutoff_freq=20,
-            threshold=0.01,
+            trigger_level=0.01,
             filter_order=2)
         u1 = self.u1_base
         u1[1000:2000] += 0.02*np.sqrt(2)*np.sin(2*np.pi*383*self.t[1000:2000])

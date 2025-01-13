@@ -237,7 +237,7 @@ class PowerSystem(object):
                         bp_lo_cutoff_freq=self._features["mains_signaling_tracer"]["frequency"]-10,
                         bp_hi_cutoff_freq=self._features["mains_signaling_tracer"]["frequency"]+10,
                         filter_order=4,
-                        threshold=1.0)
+                        trigger_level=1.0)
             
     
     def process(self):

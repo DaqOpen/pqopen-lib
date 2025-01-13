@@ -291,7 +291,7 @@ class MainsSignalingVoltageTracer(object):
                  bp_hi_cutoff_freq: float = 390, 
                  lp_cutoff_freq = 20, 
                  filter_order = 4, 
-                 threshold = 1):
+                 trigger_level = 1):
         """
         Class for tracing the mains signaling voltage as binary signal
 
@@ -301,15 +301,15 @@ class MainsSignalingVoltageTracer(object):
             bp_hi_cutoff_freq: Bandpass filter, upper end cutoff frequency
             lp_cutoff_freq: Smooting lowpass filter cutoff frequency
             filter_order: Filter order
-            threshold: Detection Threshold in engineering unit
+            trigger_level: Detection level in engineering unit
         """
         self.samplerate = samplerate
         self.bp_lo_cutoff_freq = bp_lo_cutoff_freq
         self.bp_hi_cutoff_freq = bp_hi_cutoff_freq
         self.lp_cutoff_freq = lp_cutoff_freq
         self.filter_order = filter_order
-        self.threshold = threshold
-        self.previous_value = 0
+        self.trigger_level = trigger_level
+        self.trigger_active = False
         self._prepare_filter()
     
     def _prepare_filter(self):
@@ -345,13 +345,13 @@ class MainsSignalingVoltageTracer(object):
         rectified_data = np.sqrt(np.power(hp_filtered_data,2))
         lp_filtered_data =  self._do_lp_filter(rectified_data)
         value = lp_filtered_data.mean()
-        if  value > self.threshold and self.previous_value <= self.threshold:
+        if not self.trigger_active and (value > self.trigger_level):
             # Rising edge detected
             ret_val = 1.0
-        elif value < self.threshold and self.previous_value >= self.threshold:
-            # Falling edge detected
+            self.trigger_active = True
+        elif self.trigger_active and (value < self.trigger_level*0.9):
             ret_val = 0.0
+            self.trigger_active = False
         else:
             ret_val = None
-        self.previous_value = value
         return ret_val
