@@ -90,6 +90,26 @@ class TestStorageController(unittest.TestCase):
 
         self.assertEqual(storage_endpoint._event_list[0].start_ts, 0.01)
 
+    def test_one_storageplan_series_slow(self):
+        start_timestamp = int(1000000000*1e6)
+        storage_endpoint = TestStorageEndpoint("Test", "1234")
+        # Configure Storage Plan
+        storage_plan = StoragePlan(storage_endpoint, start_timestamp, interval_seconds=0)
+        storage_plan.add_channel(self.scalar_channel)
+        self.storage_controller.add_storage_plan(storage_plan)
+        time_data = np.arange(start_timestamp, start_timestamp+60_000_000, int(1e6*(1/self.samplerate)))
+        for i in range(59):
+            self.time_channel.put_data(time_data[i*self.samplerate:(i+1)*self.samplerate])
+            self.scalar_channel.put_data_single(i*self.samplerate, i)
+            self.storage_controller.process()
+
+        expected_data_list0 = {}
+        expected_data_list0["scalar1"] = {"data": {}, "timestamps": {}}
+        expected_data_list0["scalar1"]["data"] = np.arange(0,5, 1, dtype=np.float64).tolist()
+        expected_data_list0["scalar1"]["timestamps"] = time_data[:5*self.samplerate:self.samplerate].tolist()
+
+        self.assertEqual(storage_endpoint._data_series_list[0], expected_data_list0)
+
 class TestStorageEndpoints(unittest.TestCase):
     def setUp(self):
         self.time_channel = AcqBuffer(dtype=np.int64)

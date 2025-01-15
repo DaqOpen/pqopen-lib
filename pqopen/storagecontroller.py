@@ -105,10 +105,8 @@ class StoragePlan(object):
                 start_timestamp = most_recent_timestamp - int(round((most_recent_sample_idx - start_sample_idx)/sample_rate*1e6, 0))
                 for sample_index in channel_sample_indices:
                     channel_timestamps.append(start_timestamp + int(round((sample_index - start_sample_idx)/sample_rate*1e6,0)))
-
-            data[channel["channel"].name] = {'data': channel_data, 'timestamps': channel_timestamps}
-
-        self.storage_endpoint.write_data_series(data)
+                data[channel["channel"].name] = {'data': channel_data, 'timestamps': channel_timestamps}
+                self.storage_endpoint.write_data_series(data)
 
     def store_aggregated_data(self, stop_sidx: int):
         """
@@ -190,10 +188,10 @@ class StorageController(object):
             timestamps: The array of timestamps.
         """
         while storage_plan.next_storage_timestamp <= timestamps.max():
-            if timestamps.min() < storage_plan.next_storage_timestamp:
-                storage_plan.next_storage_sample_index = start_acq_sidx + timestamps.searchsorted(storage_plan.next_storage_timestamp)
-                storage_plan.store_data_series(self.time_channel, self.sample_rate)
-                storage_plan.last_storage_sample_index = storage_plan.next_storage_sample_index
+            #if timestamps.min() < storage_plan.next_storage_timestamp:
+            storage_plan.next_storage_sample_index = start_acq_sidx + timestamps.searchsorted(storage_plan.next_storage_timestamp)
+            storage_plan.store_data_series(self.time_channel, self.sample_rate)
+            storage_plan.last_storage_sample_index = storage_plan.next_storage_sample_index
             storage_plan.next_storage_timestamp += self.DATA_SERIES_PACKET_TIME
 
     def _process_aggregated_data(self, storage_plan: StoragePlan, start_acq_sidx: int, timestamps: np.ndarray):
