@@ -347,11 +347,11 @@ class MainsSignalingVoltageTracer(object):
         value = lp_filtered_data.mean()
         if not self.trigger_active and (value > self.trigger_level):
             # Rising edge detected
-            ret_val = 1.0
+            edge_val = 1.0
             self.trigger_active = True
         elif self.trigger_active and (value < self.trigger_level*0.9):
-            ret_val = 0.0
+            edge_val = 0.0
             self.trigger_active = False
         else:
-            ret_val = None
-        return ret_val
+            edge_val = None
+        return edge_val, value

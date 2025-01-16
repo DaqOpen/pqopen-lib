@@ -83,7 +83,8 @@ class PowerSystem(object):
                           "nper_abs_time_sync": False,
                           "mains_signaling_voltage": 0,
                           "under_over_deviation": 0,
-                          "mains_signaling_tracer": {}}
+                          "mains_signaling_tracer": {},
+                          "debug_channels": False}
         self._prepare_calc_channels()
         self.output_channels: Dict[str, DataChannelBuffer] = {}
         self._last_processed_sidx = 0
@@ -97,10 +98,10 @@ class PowerSystem(object):
 
 
     def _prepare_calc_channels(self):
-        self._calc_channels = {"half_period":      {"voltage": {}, "current": {}, "power": {}}, 
-                                "one_period":       {"voltage": {}, "current": {}, "power": {}}, 
-                                "one_period_ovlp":  {"voltage": {}, "current": {}, "power": {}}, 
-                                "multi_period":     {"voltage": {}, "current": {}, "power": {}}}
+        self._calc_channels = {"half_period":      {"voltage": {}, "current": {}, "power": {}, "_debug": {}}, 
+                                "one_period":       {"voltage": {}, "current": {}, "power": {}, "_debug": {}}, 
+                                "one_period_ovlp":  {"voltage": {}, "current": {}, "power": {}, "_debug": {}}, 
+                                "multi_period":     {"voltage": {}, "current": {}, "power": {}, "_debug": {}}}
 
     def add_phase(self, u_channel: AcqBuffer, i_channel: AcqBuffer = None, name: str = ""):
         """
@@ -170,16 +171,20 @@ class PowerSystem(object):
         self._features["under_over_deviation"] = u_din
         self._update_calc_channels()
 
-    def enable_mains_signaling_tracer(self, frequency: float, threshold: float):
+    def enable_mains_signaling_tracer(self, frequency: float, trigger_level: float):
         """
         Enables high res tracing of mains signaling voltage
         for potential data decoding.
 
         Parameters:
             frequency: Expected frequency of signaling voltage
-            threshold: Binary conversion threshold in volt
+            trigger_level: Binary conversion level in volt
         """
-        self._features["mains_signaling_tracer"] = {"frequency": frequency, "threshold": threshold}
+        self._features["mains_signaling_tracer"] = {"frequency": frequency, "trigger_level": trigger_level}
+        self._update_calc_channels()
+
+    def enable_debug_channels(self):
+        self._features["debug_channels"] = True
         self._update_calc_channels()
 
     def _resync_nper_abs_time(self, zc_idx: int):
@@ -210,6 +215,11 @@ class PowerSystem(object):
                     tmp = {channel.name: channel for channel in calc_type.values()}
                     self.output_channels.update(tmp)
         self._calc_channels["one_period"]["power"]["freq"] = DataChannelBuffer('Freq', agg_type='mean', unit="Hz")
+        # Enable Debug Channels
+        if self._features["debug_channels"]:
+            self._calc_channels["one_period"]["_debug"]["sidx"] = DataChannelBuffer('_sidx', agg_type='max', unit="")
+            self._calc_channels["one_period"]["_debug"]["pidx"] = DataChannelBuffer('_pidx', agg_type='max', unit="")
+        
         if self._phases:
             if len(self._phases) == 3:
                 self._calc_channels["multi_period"]["voltage"]["unbal_0"] = DataChannelBuffer('U_unbal_0', agg_type='mean', unit="%")
@@ -237,7 +247,7 @@ class PowerSystem(object):
                         bp_lo_cutoff_freq=self._features["mains_signaling_tracer"]["frequency"]-10,
                         bp_hi_cutoff_freq=self._features["mains_signaling_tracer"]["frequency"]+10,
                         filter_order=4,
-                        trigger_level=1.0)
+                        trigger_level=self._features["mains_signaling_tracer"]["trigger_level"])
             
     
     def process(self):
@@ -262,6 +272,9 @@ class PowerSystem(object):
             self._zero_crossings.append(actual_zc)
             if self._zero_cross_counter <= 1:
                 continue
+            # Add actual zero cross counter to debug channel if enabled
+            if "pidx" in self._calc_channels["one_period"]['_debug']:
+                self._calc_channels["one_period"]['_debug']['pidx'].put_data_single(self._zero_crossings[-1], self._zero_cross_counter)
             # Process one period calculation, start with second zc
             self._process_one_period(self._zero_crossings[-2], self._zero_crossings[-1])
             if ((self._zero_cross_counter-1) % self.nper) == 0 and (self._zero_cross_counter > self.nper):
@@ -282,6 +295,8 @@ class PowerSystem(object):
         """
         frequency = self._samplerate/(period_stop_sidx - period_start_sidx)
         self._calc_channels["one_period"]['power']['freq'].put_data_single(period_stop_sidx, frequency)
+        if "sidx" in self._calc_channels["one_period"]['_debug']:
+            self._calc_channels["one_period"]['_debug']['sidx'].put_data_single(period_stop_sidx, period_stop_sidx)
         p_sum = 0.0
         for phase in self._phases:
             # Read phase angle of phases's voltage if available
@@ -296,14 +311,17 @@ class PowerSystem(object):
             phase_period_stop_sidx = period_stop_sidx - u_phi_samples
             phase_period_half_sidx = phase_period_start_sidx + int((phase_period_stop_sidx - phase_period_start_sidx)/2)
             u_values = phase._u_channel.read_data_by_index(phase_period_start_sidx, phase_period_stop_sidx)
+            if self._features["mains_signaling_tracer"]:
+                msv_edge, msv_value = phase._mains_signaling_tracer.process(u_values[::10])
             for phys_type, output_channel in phase._calc_channels["one_period"]["voltage"].items():
                 if phys_type == "trms":
                     u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
                     output_channel.put_data_single(phase_period_stop_sidx, u_rms)
                 if phys_type == "msv_bit":
-                    msv_bit = phase._mains_signaling_tracer.process(u_values[::10])
-                    if msv_bit is not None:
-                        output_channel.put_data_single(phase_period_stop_sidx, msv_bit)
+                    if msv_edge is not None:
+                        output_channel.put_data_single(phase_period_stop_sidx, msv_edge)
+                if phys_type == "msv_mag":
+                    output_channel.put_data_single(phase_period_stop_sidx, msv_value)
             for phys_type, output_channel in phase._calc_channels["half_period"]["voltage"].items():
                 if phys_type == "trms":
                     # First half period
@@ -573,6 +591,7 @@ class PowerPhase(object):
             self._calc_channels["multi_period"]["voltage"]["over"] = DataChannelBuffer('U{:s}_over'.format(self.name), agg_type=None, unit="%", agg_function=pq.calc_over_deviation, u_din=features["under_over_deviation"])
 
         if "mains_signaling_tracer" in features and features["mains_signaling_tracer"]:
+            self._calc_channels["one_period"]["voltage"]["msv_mag"] = DataChannelBuffer('U{:s}_1p_msv'.format(self.name), agg_type='max', unit="V")
             self._calc_channels["one_period"]["voltage"]["msv_bit"] = DataChannelBuffer('U{:s}_msv_bit'.format(self.name), unit="")
 
         # Create Current Channels

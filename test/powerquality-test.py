@@ -215,14 +215,14 @@ class TestPowerPowerQualityMsvTracer(unittest.TestCase):
             bp_hi_cutoff_freq=393,
             lp_cutoff_freq=20,
             trigger_level=0.01,
-            filter_order=2)
+            filter_order=4)
         u1 = self.u1_base
         u1[1000:2000] += 0.02*np.sqrt(2)*np.sin(2*np.pi*383*self.t[1000:2000])
-        expected_msv_bit_list = [(12, 1), (22, 0)]
+        expected_msv_bit_list = [(14, 1), (24, 0)]
         samples_per_period = int(self.samplerate/self.f_fund)
         msv_bit_list = []
         for period_idx in range(int(self.f_fund/self.duration)):
-            msv_bit = msv_tracer.process(u1[period_idx*samples_per_period:(period_idx+1)*samples_per_period])
+            msv_bit, _ = msv_tracer.process(u1[period_idx*samples_per_period:(period_idx+1)*samples_per_period])
             if msv_bit is not None:
                 msv_bit_list.append((period_idx, msv_bit))
         
