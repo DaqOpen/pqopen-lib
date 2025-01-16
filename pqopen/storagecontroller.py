@@ -132,7 +132,7 @@ class StorageController(object):
     """Manages multiple storage plans and processes data for storage."""
 
     STORAGE_DELAY_SECONDS = 1
-    DATA_SERIES_PACKET_TIME = int(5e6)
+    DATA_SERIES_PACKET_TIME = int(1e6)
 
     def __init__(self, time_channel: AcqBuffer, sample_rate: float):
         """
