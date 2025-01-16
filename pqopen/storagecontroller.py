@@ -106,7 +106,8 @@ class StoragePlan(object):
                 for sample_index in channel_sample_indices:
                     channel_timestamps.append(start_timestamp + int(round((sample_index - start_sample_idx)/sample_rate*1e6,0)))
                 data[channel["channel"].name] = {'data': channel_data, 'timestamps': channel_timestamps}
-                self.storage_endpoint.write_data_series(data)
+        if data:
+            self.storage_endpoint.write_data_series(data)
 
     def store_aggregated_data(self, stop_sidx: int):
         """
