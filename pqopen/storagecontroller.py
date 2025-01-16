@@ -99,12 +99,8 @@ class StoragePlan(object):
                 logger.warning("Channel is not of instance DataChannelBuffer")
 
             if channel_sample_indices:
-                most_recent_sample_idx = channel_sample_indices[-1]
-                most_recent_timestamp = int(time_channel.read_data_by_index(most_recent_sample_idx, most_recent_sample_idx + 1)[0])
-                start_sample_idx = channel_sample_indices[0]
-                start_timestamp = most_recent_timestamp - int(round((most_recent_sample_idx - start_sample_idx)/sample_rate*1e6, 0))
                 for sample_index in channel_sample_indices:
-                    channel_timestamps.append(start_timestamp + int(round((sample_index - start_sample_idx)/sample_rate*1e6,0)))
+                    channel_timestamps.append(int(time_channel.read_data_by_index(sample_index, sample_index + 1)[0]))
                 data[channel["channel"].name] = {'data': channel_data, 'timestamps': channel_timestamps}
         if data:
             self.storage_endpoint.write_data_series(data)
