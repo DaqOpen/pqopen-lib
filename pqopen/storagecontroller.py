@@ -266,11 +266,12 @@ class StorageController(object):
                 self._configured_eps["csv"] = csv_storage_endpoint
             elif ep_type == "mqtt":
                 mqtt_storage_endpoint = MqttStorageEndpoint(name="mqtt", 
-                                                                 measurement_id=measurement_id, 
-                                                                 device_id=device_id, 
-                                                                 mqtt_host=ep_config.get("hostname", "localhost"), 
-                                                                 client_id=client_id,
-                                                                 compression=ep_config.get("compression", False))
+                                                            measurement_id=measurement_id, 
+                                                            device_id=device_id, 
+                                                            mqtt_host=ep_config.get("hostname", "localhost"), 
+                                                            client_id=client_id,
+                                                            topic_prefix=ep_config.get("topic_prefix", "dt/pqopen"),
+                                                            compression=ep_config.get("compression", False))
                 self._configured_eps["mqtt"] = mqtt_storage_endpoint
             else:
                 raise NotImplementedError(f"{ep_type:s} not implemented")
@@ -323,7 +324,14 @@ class TestStorageEndpoint(StorageEndpoint):
 
 class MqttStorageEndpoint(StorageEndpoint):
     """Represents a MQTT endpoint (MQTT) for transferring data."""
-    def __init__(self, name: str, measurement_id: str, device_id: str, mqtt_host: str, client_id: str, compression: bool=True):
+    def __init__(self, 
+                 name: str, 
+                 measurement_id: str, 
+                 device_id: str, 
+                 mqtt_host: str, 
+                 client_id: str, 
+                 topic_prefix: str = "dt/pqopen",
+                 compression: bool=True):
         """ Create a MQTT storage endpoint
 
         Parameters:
@@ -332,6 +340,7 @@ class MqttStorageEndpoint(StorageEndpoint):
             device_id: The device Id
             mqtt_host: hostname of the MQTT broker.
             client_id: name to be used for mqtt client identification
+            topic_prefix: topic prefix before device-id, no trailing /
             compression: Flag if payload should be compressed with gzip or not
         """
         super().__init__(name, measurement_id)
@@ -339,6 +348,7 @@ class MqttStorageEndpoint(StorageEndpoint):
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, clean_session=False)
         self._client.connect_async(host=mqtt_host)
         self._compression = compression
+        self._topic_prefix = topic_prefix
         self._client.loop_start()
 
     def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int):
@@ -356,10 +366,10 @@ class MqttStorageEndpoint(StorageEndpoint):
                         'data': data}
         json_item = json.dumps(agg_data_obj)
         if self._compression:
-            self._client.publish(f"dt/pqopen/{self._device_id:s}/agg_data/gjson",
+            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/agg_data/gjson",
                             gzip.compress(json_item.encode('utf-8')), qos=2)
         else:
-            self._client.publish(f"dt/pqopen/{self._device_id:s}/agg_data/json",
+            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/agg_data/json",
                             json_item.encode('utf-8'), qos=2)
             
     def write_data_series(self, data: dict):
@@ -373,10 +383,10 @@ class MqttStorageEndpoint(StorageEndpoint):
                         'data': data}
         json_item = json.dumps(data_series_obj)
         if self._compression:
-            self._client.publish(f"dt/pqopen/{self._device_id:s}/dataseries/gjson",
+            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/dataseries/gjson",
                             gzip.compress(json_item.encode('utf-8')), qos=2)
         else:
-            self._client.publish(f"dt/pqopen/{self._device_id:s}/dataseries/json",
+            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/dataseries/json",
                             json_item.encode('utf-8'), qos=2)
             
     def write_event(self, event):
@@ -398,10 +408,10 @@ class MqttStorageEndpoint(StorageEndpoint):
         }
         json_item = json.dumps(event_obj)
         if self._compression:
-            self._client.publish(f"dt/pqopen/{self._device_id:s}/event/gjson",
+            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/event/gjson",
                             gzip.compress(json_item.encode('utf-8')), qos=2)
         else:
-            self._client.publish(f"dt/pqopen/{self._device_id:s}/event/json",
+            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/event/json",
                             json_item.encode('utf-8'), qos=2)
 
 class CsvStorageEndpoint(StorageEndpoint):
