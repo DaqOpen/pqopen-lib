@@ -276,8 +276,8 @@ class TestPowerSystemCalculationThreePhase(unittest.TestCase):
         expected_q1_t = np.array(np.zeros(4)) + 1.0*2.0*np.sin(np.arccos(0.5))
         expected_q1_fund = np.array(np.zeros(4)) - 1.0*2.0*np.sin(np.arccos(0.5))
 
-        expected_unbal_0 = np.array(np.zeros(4)) + 56.919
-        expected_unbal_2 = np.array(np.zeros(4)) + 61.465
+        expected_unbal_0 = np.array(np.zeros(4)) + 5.249
+        expected_unbal_2 = np.array(np.zeros(4)) + 5.249
 
         expected_sidx = np.arange(1,5) * 0.2 * self.power_system._samplerate + 0.02 * self.power_system._samplerate
 

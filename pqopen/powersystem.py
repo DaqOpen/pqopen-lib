@@ -372,6 +372,8 @@ class PowerSystem(object):
                 data_fft_U = pq.resample_and_fft(u_values)
                 u_h_mag, u_h_phi = pq.calc_harmonics(data_fft_U, self.nper, self._features["harmonics"])
                 u_ih_mag = pq.calc_interharmonics(data_fft_U, self.nper, self._features["harmonics"])
+                if phase._number == 1: # use phase 1 angle as reference
+                    phi_ref = u_h_phi[1]
                 u_cplx.append(u_h_mag[1]*np.exp(1j*(u_h_phi[1]-phi_ref)*np.pi/180))
             for phys_type, output_channel in phase._calc_channels["multi_period"]["voltage"].items():
                 if phys_type == "trms":
@@ -379,8 +381,6 @@ class PowerSystem(object):
                 if phys_type == "fund_rms":
                     output_channel.put_data_single(stop_sidx, u_h_mag[1])
                 if phys_type == "fund_phi":
-                    if phase._number == 1:
-                        phi_ref = u_h_phi[1]
                     output_channel.put_data_single(stop_sidx, pq.normalize_phi(u_h_phi[1]-phi_ref))
                 if phys_type == "harm_rms":
                     output_channel.put_data_single(stop_sidx, u_h_mag)
