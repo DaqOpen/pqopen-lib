@@ -22,6 +22,8 @@ Imports:
 import numpy as np
 from typing import List, Dict
 import logging
+from pathlib import Path
+import json
 
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
 from pqopen.zcd import ZeroCrossDetector
@@ -84,7 +86,8 @@ class PowerSystem(object):
                           "mains_signaling_voltage": 0,
                           "under_over_deviation": 0,
                           "mains_signaling_tracer": {},
-                          "debug_channels": False}
+                          "debug_channels": False,
+                          "energy_channels": {}}
         self._prepare_calc_channels()
         self.output_channels: Dict[str, DataChannelBuffer] = {}
         self._last_processed_sidx = 0
@@ -101,7 +104,7 @@ class PowerSystem(object):
         self._calc_channels = {"half_period":      {"voltage": {}, "current": {}, "power": {}, "_debug": {}}, 
                                 "one_period":       {"voltage": {}, "current": {}, "power": {}, "_debug": {}}, 
                                 "one_period_ovlp":  {"voltage": {}, "current": {}, "power": {}, "_debug": {}}, 
-                                "multi_period":     {"voltage": {}, "current": {}, "power": {}, "_debug": {}}}
+                                "multi_period":     {"voltage": {}, "current": {}, "power": {}, "energy": {}, "_debug": {}}}
 
     def add_phase(self, u_channel: AcqBuffer, i_channel: AcqBuffer = None, name: str = ""):
         """
@@ -187,6 +190,14 @@ class PowerSystem(object):
         self._features["debug_channels"] = True
         self._update_calc_channels()
 
+    def enable_energy_channels(self, persist_file: Path, ignore_value = False):
+        if persist_file.exists() and not ignore_value:
+            energy_counters = json.loads(persist_file.read_text())
+        else:
+            energy_counters = {}
+        self._features["energy_channels"] = {"persist_file": persist_file, "energy_counters": energy_counters}
+        self._update_calc_channels()
+
     def _resync_nper_abs_time(self, zc_idx: int):
         if not self._features["nper_abs_time_sync"]:
             return None
@@ -221,12 +232,17 @@ class PowerSystem(object):
             self._calc_channels["one_period"]["_debug"]["pidx"] = DataChannelBuffer('_pidx', agg_type='max', unit="")
         
         if self._phases:
-            if len(self._phases) == 3:
+            if len(self._phases) == 3 and self._features["harmonics"]:
                 self._calc_channels["multi_period"]["voltage"]["unbal_0"] = DataChannelBuffer('U_unbal_0', agg_type='mean', unit="%")
                 self._calc_channels["multi_period"]["voltage"]["unbal_2"] = DataChannelBuffer('U_unbal_2', agg_type='mean', unit="%")
             if "current" in phase._calc_channels[agg_interval]:
                 self._calc_channels["one_period"]["power"]["p_avg"] = DataChannelBuffer('P_1p', agg_type='mean', unit="W")
                 self._calc_channels["multi_period"]["power"]["p_avg"] = DataChannelBuffer('P', agg_type='mean', unit="W")
+            if self._features["energy_channels"]:
+                self._calc_channels["multi_period"]["energy"]["w_pos"] = DataChannelBuffer('W_pos', agg_type='max', unit="Wh")
+                self._calc_channels["multi_period"]["energy"]["w_pos"].last_sample_value = self._features["energy_channels"]["energy_counters"].get("W_pos", 0.0)
+                self._calc_channels["multi_period"]["energy"]["w_neg"] = DataChannelBuffer('W_neg', agg_type='max', unit="Wh")
+                self._calc_channels["multi_period"]["energy"]["w_neg"].last_sample_value = self._features["energy_channels"]["energy_counters"].get("W_neg", 0.0)
 
             for agg_interval, phys_types in self._calc_channels.items():
                 for phys_type, calc_type in phys_types.items():
@@ -248,6 +264,7 @@ class PowerSystem(object):
                         bp_hi_cutoff_freq=self._features["mains_signaling_tracer"]["frequency"]+10,
                         filter_order=4,
                         trigger_level=self._features["mains_signaling_tracer"]["trigger_level"])
+                    
             
     
     def process(self):
@@ -438,8 +455,20 @@ class PowerSystem(object):
         # Caclulate Power System's SUM
         if "p_avg" in self._calc_channels["multi_period"]["power"]:
             self._calc_channels["multi_period"]["power"]["p_avg"].put_data_single(stop_sidx, p_sum)
+        
+        # Calculate Positive Energy
+        if "w_pos" in self._calc_channels["multi_period"]["energy"]:
+            prev_w_pos_value = self._calc_channels["multi_period"]["energy"]["w_pos"].last_sample_value
+            energy = (stop_sidx - start_sidx)/self._samplerate/3600*p_sum if p_sum > 0 else 0.0 # Energy in Wh
+            self._calc_channels["multi_period"]["energy"]["w_pos"].put_data_single(stop_sidx, prev_w_pos_value + energy)
+        
+        # Calculate Negative Energy
+        if "w_neg" in self._calc_channels["multi_period"]["energy"]:
+            prev_w_neg_value = self._calc_channels["multi_period"]["energy"]["w_neg"].last_sample_value
+            energy = -(stop_sidx - start_sidx)/self._samplerate/3600*p_sum if p_sum < 0 else 0.0 # Energy in Wh
+            self._calc_channels["multi_period"]["energy"]["w_neg"].put_data_single(stop_sidx, prev_w_neg_value + energy)
 
-        # Calclucalte unbalance (3-phase)
+        # Calculate unbalance (3-phase)
         if "unbal_0" in self._calc_channels["multi_period"]["voltage"]:
             u0, u2 = pq.calc_unbalance(u_cplx)
             self._calc_channels["multi_period"]["voltage"]["unbal_0"].put_data_single(stop_sidx, u0)
@@ -523,7 +552,15 @@ class PowerSystem(object):
         for ch_name, channel in self.output_channels.items():
             ch_data = channel.read_agg_data_by_acq_sidx(start_acq_sidx, stop_acq_sidx)
             output_values[ch_name] = ch_data
-        return output_values  
+        return output_values
+    
+    def __del__(self):
+        if self._features["energy_channels"]:
+            w_pos_value = float(self._calc_channels["multi_period"]["energy"]["w_pos"].last_sample_value)
+            w_neg_value = float(self._calc_channels["multi_period"]["energy"]["w_neg"].last_sample_value)
+            w_pos_name = self._calc_channels["multi_period"]["energy"]["w_pos"].name
+            w_neg_name = self._calc_channels["multi_period"]["energy"]["w_neg"].name
+            self._features["energy_channels"]["persist_file"].write_text(json.dumps({w_pos_name: w_pos_value, w_neg_name: w_neg_value}))
 
     
 class PowerPhase(object):

@@ -4,6 +4,8 @@ import sys
 import numpy as np
 import datetime
 from unittest.mock import MagicMock
+from pathlib import Path
+import json
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
@@ -349,6 +351,68 @@ class TestPowerSystemCalculationThreePhase(unittest.TestCase):
         self.assertIsNone(np.testing.assert_array_almost_equal(u0, expected_unbal_0, 3))
         u2, sidx = self.power_system.output_channels["U_unbal_2"].read_data_by_acq_sidx(0, u1_values.size)
         self.assertIsNone(np.testing.assert_array_almost_equal(u2, expected_unbal_2, 3))
+
+    def test_energy_calc_pos(self):
+        t = np.linspace(0, 1, int(self.power_system._samplerate), endpoint=False)
+        u1_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)
+        u2_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t - 120*np.pi/180)
+        u3_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t + 120*np.pi/180)
+        i1_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)
+        i2_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t -120*np.pi/180) 
+        i3_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t+ 120*np.pi/180)
+
+        Path(SCRIPT_DIR+"/data_files/energy.json").write_text(json.dumps({"W_pos": 10, "W_neg": 10}))
+
+        expected_w_pos = np.array([1, 2, 3, 4])*3*0.2/3600 + 10
+        expected_w_neg = np.array([1, 2, 3, 4])*0.0/3600 + 10
+
+        self.power_system.enable_energy_channels(Path(SCRIPT_DIR+"/data_files/energy.json"))
+        self.u1_channel.put_data(u1_values)
+        self.u2_channel.put_data(u2_values)
+        self.u3_channel.put_data(u3_values)
+
+        self.i1_channel.put_data(i1_values)
+        self.i2_channel.put_data(i2_values)
+        self.i3_channel.put_data(i3_values)
+
+        self.power_system.process()
+
+        # Check Energy W_pos
+        w_pos, sidx = self.power_system.output_channels["W_pos"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_allclose(w_pos, expected_w_pos, rtol=0.01))
+        w_neg, sidx = self.power_system.output_channels["W_neg"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_allclose(w_neg, expected_w_neg, rtol=0.01))
+
+    def test_energy_calc_neg(self):
+        t = np.linspace(0, 1, int(self.power_system._samplerate), endpoint=False)
+        u1_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)
+        u2_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t - 120*np.pi/180)
+        u3_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t + 120*np.pi/180)
+        i1_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)
+        i2_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t -120*np.pi/180) 
+        i3_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t+ 120*np.pi/180)
+
+        Path(SCRIPT_DIR+"/data_files/energy.json").write_text(json.dumps({"W_pos": 10, "W_neg": 10}))
+
+        expected_w_pos = np.array([1, 2, 3, 4])*0.0/3600 + 10
+        expected_w_neg = np.array([1, 2, 3, 4])*3*0.2/3600 + 10
+
+        self.power_system.enable_energy_channels(Path(SCRIPT_DIR+"/data_files/energy.json"))
+        self.u1_channel.put_data(u1_values)
+        self.u2_channel.put_data(u2_values)
+        self.u3_channel.put_data(u3_values)
+
+        self.i1_channel.put_data(-i1_values)
+        self.i2_channel.put_data(-i2_values)
+        self.i3_channel.put_data(-i3_values)
+
+        self.power_system.process()
+
+        # Check Energy W_pos
+        w_pos, sidx = self.power_system.output_channels["W_pos"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_allclose(w_pos, expected_w_pos, rtol=0.01))
+        w_neg, sidx = self.power_system.output_channels["W_neg"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_allclose(w_neg, expected_w_neg, rtol=0.01))
 
 class TestPowerSystemNperSync(unittest.TestCase):
     def setUp(self):
