@@ -57,8 +57,8 @@ class TestStorageController(unittest.TestCase):
 
         expected_data_list0 = {}
         expected_data_list0["scalar1"] = {"data": {}, "timestamps": {}}
-        expected_data_list0["scalar1"]["data"] = np.arange(0,50, 1, dtype=np.float64).tolist()
-        expected_data_list0["scalar1"]["timestamps"] = np.arange(0,5000000, 100000).tolist()
+        expected_data_list0["scalar1"]["data"] = np.arange(0,10, 1, dtype=np.float64).tolist()
+        expected_data_list0["scalar1"]["timestamps"] = np.arange(0,1000000, 100000).tolist()
 
         self.assertEqual(storage_endpoint._data_series_list[0], expected_data_list0)
 
@@ -105,8 +105,8 @@ class TestStorageController(unittest.TestCase):
 
         expected_data_list0 = {}
         expected_data_list0["scalar1"] = {"data": {}, "timestamps": {}}
-        expected_data_list0["scalar1"]["data"] = np.arange(0,5, 1, dtype=np.float64).tolist()
-        expected_data_list0["scalar1"]["timestamps"] = time_data[:5*self.samplerate:self.samplerate].tolist()
+        expected_data_list0["scalar1"]["data"] = np.arange(0,1, 1, dtype=np.float64).tolist()
+        expected_data_list0["scalar1"]["timestamps"] = time_data[:1*self.samplerate:self.samplerate].tolist()
 
         self.assertEqual(storage_endpoint._data_series_list[0], expected_data_list0)
 
