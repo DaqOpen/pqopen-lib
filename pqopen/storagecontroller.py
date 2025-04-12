@@ -470,6 +470,7 @@ class HomeAssistantStorageEndpoint(StorageEndpoint):
             client.publish("homeassistant/sensor/activePowerNegative/config", json.dumps(homeassistant_config), retain=True)
 
             homeassistant_config = {"device_class": "energy",
+                                    "state_class": "total",
                                     "name": "Active Energy Positive",
                                     "unique_id": "pqopen_W_pos",
                                     "state_topic": f"{self._topic_prefix:s}",
@@ -479,6 +480,7 @@ class HomeAssistantStorageEndpoint(StorageEndpoint):
             client.publish("homeassistant/sensor/activeEnergyPositive/config", json.dumps(homeassistant_config), retain=True)
 
             homeassistant_config = {"device_class": "energy",
+                                    "state_class": "total",
                                 "name": "Active Energy Negative",
                                 "unique_id": "pqopen_W_neg",
                                 "state_topic": f"{self._topic_prefix:s}",
