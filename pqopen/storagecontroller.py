@@ -241,8 +241,7 @@ class StorageController(object):
                                          storage_plans: dict, 
                                          available_channels: dict, 
                                          measurement_id: str, 
-                                         device_id: str, 
-                                         client_id: str,
+                                         device_id: str,
                                          start_timestamp_us: int):
         """
         Setup endpoints and storage plans from config
@@ -269,10 +268,18 @@ class StorageController(object):
                                                             measurement_id=measurement_id, 
                                                             device_id=device_id, 
                                                             mqtt_host=ep_config.get("hostname", "localhost"), 
-                                                            client_id=client_id,
+                                                            client_id=ep_config.get("client_id", "pqopen-mqtt"),
                                                             topic_prefix=ep_config.get("topic_prefix", "dt/pqopen"),
                                                             compression=ep_config.get("compression", False))
                 self._configured_eps["mqtt"] = mqtt_storage_endpoint
+            elif ep_type == "ha_mqtt":
+                ha_mqtt_storage_endpoint = HomeAssistantStorageEndpoint(name="ha_mqtt",
+                                                            device_id=device_id, 
+                                                            mqtt_host=ep_config.get("hostname", "localhost"), 
+                                                            client_id=ep_config.get("client_id", "pqopen-ha"),
+                                                            topic_prefix=ep_config.get("topic_prefix", "pqopen/data"),
+                                                            qos=ep_config.get("qos", 0))
+                self._configured_eps["ha_mqtt"] = ha_mqtt_storage_endpoint
             else:
                 raise NotImplementedError(f"{ep_type:s} not implemented")
         for sp_name, sp_config in storage_plans.items():
@@ -413,6 +420,85 @@ class MqttStorageEndpoint(StorageEndpoint):
         else:
             self._client.publish(self._topic_prefix + f"/{self._device_id:s}/event/json",
                             json_item.encode('utf-8'), qos=2)
+            
+class HomeAssistantStorageEndpoint(StorageEndpoint):
+    """Represents a MQTT endpoint (MQTT) for HomeAssistant."""
+    def __init__(self, 
+                 name: str, 
+                 device_id: str, 
+                 mqtt_host: str, 
+                 client_id: str, 
+                 topic_prefix: str = "pqopen/data",
+                 qos: int = 0):
+        """ Create an endpoint for HomeAssistant via MQTT
+
+        Parameters:
+            name: The name of the endpoint
+            device_id: The device Id
+            mqtt_host: hostname of the MQTT broker.
+            client_id: name to be used for mqtt client identification
+            topic_prefix: topic prefix before device-id, no trailing /
+            qos: mqtt quality of service. valid values 0, 1, 2
+        """
+        super().__init__(name, measurement_id=None)
+        self._device_id = device_id
+        self._topic_prefix = topic_prefix
+        self._qos = qos
+        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, clean_session=True)
+        self._client.on_connect = self._on_connect
+        self._client.connect_async(host=mqtt_host)
+        self._client.loop_start()
+
+    def _on_connect(self, client, userdata, flags, reason_code, properties):
+            logger.debug("HA-MQTT Connected")
+            homeassistant_config = {"device_class": "power",
+                                    "name": "Active Power Positive",
+                                    "unique_id": "pqopen_P_pos",
+                                    "state_topic": f"{self._topic_prefix:s}",
+                                    "force_update": True,
+                                    "unit_of_measurement": "W",
+                                    "value_template": "{{ value_json.P_pos}}"}
+            client.publish("homeassistant/sensor/activePowerPositive/config", json.dumps(homeassistant_config), retain=True)
+
+            homeassistant_config = {"device_class": "power",
+                                "name": "Active Power Negative",
+                                "unique_id": "pqopen_P_neg",
+                                "state_topic": f"{self._topic_prefix:s}",
+                                "force_update": True,
+                                "unit_of_measurement": "W",
+                                "value_template": "{{ value_json.P_neg}}"}
+            client.publish("homeassistant/sensor/activePowerNegative/config", json.dumps(homeassistant_config), retain=True)
+
+            homeassistant_config = {"device_class": "energy",
+                                    "name": "Active Energy Positive",
+                                    "unique_id": "pqopen_W_pos",
+                                    "state_topic": f"{self._topic_prefix:s}",
+                                    "force_update": True,
+                                    "unit_of_measurement": "Wh",
+                                    "value_template": "{{ value_json.W_pos}}"}
+            client.publish("homeassistant/sensor/activeEnergyPositive/config", json.dumps(homeassistant_config), retain=True)
+
+            homeassistant_config = {"device_class": "energy",
+                                "name": "Active Energy Negative",
+                                "unique_id": "pqopen_W_neg",
+                                "state_topic": f"{self._topic_prefix:s}",
+                                "force_update": True,
+                                "unit_of_measurement": "Wh",
+                                "value_template": "{{ value_json.W_neg}}"}
+            client.publish("homeassistant/sensor/activeEnergyNegative/config", json.dumps(homeassistant_config), retain=True)
+
+    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int):
+        """ Write an aggregated data message
+
+        Parameters:
+            data: The data object to be sent
+            timestamp_us: Timestamp (in µs) of the data set
+            interval_seconds: Aggregation intervall, used as data tag
+        """
+        self._client.publish(self._topic_prefix, json.dumps(data).encode("utf-8"), qos=self._qos)
+        logger.debug("Published HA-MQTT Message")
+            
+    
 
 class CsvStorageEndpoint(StorageEndpoint):
     """Represents a csv storage endpoint"""

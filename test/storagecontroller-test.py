@@ -10,7 +10,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
-from pqopen.storagecontroller import StorageController, StoragePlan, TestStorageEndpoint, CsvStorageEndpoint
+from pqopen.storagecontroller import StorageController, StoragePlan, TestStorageEndpoint, CsvStorageEndpoint, HomeAssistantStorageEndpoint
 from pqopen.eventdetector import EventController, EventDetectorLevelLow
 
 
@@ -134,6 +134,31 @@ class TestStorageEndpoints(unittest.TestCase):
             self.scalar_channel.put_data_single(i*100, i)
 
         self.storage_controller.process()
+        # Wait until finished!!!
+
+    def test_ha_mqtt_endpoint(self):
+        self.w_pos_channel = DataChannelBuffer("W_pos")
+        self.w_neg_channel = DataChannelBuffer("W_neg")
+        # Define Endpoint
+        ha_mqtt_endpoint = HomeAssistantStorageEndpoint(
+            name="Test",
+            device_id="1234",
+            mqtt_host="localhost",
+            client_id="unittest")
+        # Configure Storage Plan
+        storage_plan = StoragePlan(ha_mqtt_endpoint, 0, interval_seconds=1)
+        storage_plan.add_channel(self.w_pos_channel)
+        storage_plan.add_channel(self.w_neg_channel)
+        self.storage_controller.add_storage_plan(storage_plan)
+
+        self.time_channel.put_data(np.arange(0, 10_000_000, 1e6//self.samplerate))
+        for i in range(100):
+            self.w_pos_channel.put_data_single(i*100, i)
+            self.w_neg_channel.put_data_single(i*100, i)
+
+        self.storage_controller.process()
+
+        time.sleep(2)
         # Wait until finished!!!
 
 
