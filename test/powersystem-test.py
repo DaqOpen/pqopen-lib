@@ -414,6 +414,43 @@ class TestPowerSystemCalculationThreePhase(unittest.TestCase):
         w_neg, sidx = self.power_system.output_channels["W_neg"].read_data_by_acq_sidx(0, u1_values.size)
         self.assertIsNone(np.testing.assert_allclose(w_neg, expected_w_neg, rtol=0.01))
 
+    def test_power_calc_pos_neg(self):
+        # 1 second positve power (add one period at the end to await sync)
+        t = np.linspace(0, 1.02, int(self.power_system._samplerate*1.02), endpoint=False)
+        u1_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)
+        u2_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t - 120*np.pi/180)
+        u3_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t + 120*np.pi/180)
+        i1_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)
+        i2_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t -120*np.pi/180) 
+        i3_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t+ 120*np.pi/180)
+        # 1 second negative power
+        t += 1.02
+        u1_values = np.r_[u1_values, 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)]
+        u2_values = np.r_[u2_values, 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t - 120*np.pi/180)]
+        u3_values = np.r_[u3_values, 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t + 120*np.pi/180)]
+        i1_values = np.r_[i1_values, -1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)]
+        i2_values = np.r_[i2_values, -1.0*np.sqrt(2)*np.sin(2*np.pi*50*t -120*np.pi/180)]
+        i3_values = np.r_[i3_values, -1.0*np.sqrt(2)*np.sin(2*np.pi*50*t+ 120*np.pi/180)]
+
+        expected_p_pos = np.array([3, 3, 3, 3, 3, 0, 0, 0, 0, 0])
+        expected_p_neg = np.array([0, 0, 0, 0, 0, 3, 3, 3, 3, 3])
+
+        self.u1_channel.put_data(u1_values)
+        self.u2_channel.put_data(u2_values)
+        self.u3_channel.put_data(u3_values)
+
+        self.i1_channel.put_data(i1_values)
+        self.i2_channel.put_data(i2_values)
+        self.i3_channel.put_data(i3_values)
+
+        self.power_system.process()
+
+        # Check Power Pos
+        p_pos, sidx = self.power_system.output_channels["P_pos"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_allclose(p_pos, expected_p_pos, rtol=0.01))
+        p_neg, sidx = self.power_system.output_channels["P_neg"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_allclose(p_neg, expected_p_neg, rtol=0.01))
+
 class TestPowerSystemNperSync(unittest.TestCase):
     def setUp(self):
         self.u_channel = AcqBuffer()

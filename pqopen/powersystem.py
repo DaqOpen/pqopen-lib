@@ -238,6 +238,8 @@ class PowerSystem(object):
             if "current" in phase._calc_channels[agg_interval]:
                 self._calc_channels["one_period"]["power"]["p_avg"] = DataChannelBuffer('P_1p', agg_type='mean', unit="W")
                 self._calc_channels["multi_period"]["power"]["p_avg"] = DataChannelBuffer('P', agg_type='mean', unit="W")
+                self._calc_channels["multi_period"]["power"]["p_pos"] = DataChannelBuffer('P_pos', agg_type='mean', unit="W")
+                self._calc_channels["multi_period"]["power"]["p_neg"] = DataChannelBuffer('P_neg', agg_type='mean', unit="W")
             if self._features["energy_channels"]:
                 self._calc_channels["multi_period"]["energy"]["w_pos"] = DataChannelBuffer('W_pos', agg_type='max', unit="Wh")
                 self._calc_channels["multi_period"]["energy"]["w_pos"].last_sample_value = self._features["energy_channels"]["energy_counters"].get("W_pos", 0.0)
@@ -455,7 +457,13 @@ class PowerSystem(object):
         # Caclulate Power System's SUM
         if "p_avg" in self._calc_channels["multi_period"]["power"]:
             self._calc_channels["multi_period"]["power"]["p_avg"].put_data_single(stop_sidx, p_sum)
-        
+
+        # Calculate Pos/Neg Power for separate Grid Consumption and Delivery
+        if "p_pos" in self._calc_channels["multi_period"]["power"]:
+                self._calc_channels["multi_period"]["power"]["p_pos"].put_data_single(stop_sidx, p_sum if p_sum > 0 else 0.0)
+        if "p_neg" in self._calc_channels["multi_period"]["power"]:
+                self._calc_channels["multi_period"]["power"]["p_neg"].put_data_single(stop_sidx, -p_sum if p_sum < 0 else 0.0)
+
         # Calculate Positive Energy
         if "w_pos" in self._calc_channels["multi_period"]["energy"]:
             prev_w_pos_value = self._calc_channels["multi_period"]["energy"]["w_pos"].last_sample_value
