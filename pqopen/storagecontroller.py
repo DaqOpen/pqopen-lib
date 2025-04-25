@@ -54,7 +54,7 @@ For detailed usage and implementation details, refer to the individual class doc
 """
 
 import numpy as np
-from pqopen.helper import floor_timestamp
+from pqopen.helper import floor_timestamp, JsonDecimalLimiter
 from pqopen.eventdetector import Event
 from daqopen.channelbuffer import DataChannelBuffer, AcqBuffer
 from pathlib import Path
@@ -329,7 +329,8 @@ class StorageController(object):
                                                             mqtt_host=ep_config.get("hostname", "localhost"), 
                                                             client_id=ep_config.get("client_id", "pqopen-mqtt"),
                                                             topic_prefix=ep_config.get("topic_prefix", "dt/pqopen"),
-                                                            compression=ep_config.get("compression", False))
+                                                            compression=ep_config.get("compression", False),
+                                                            limit_precision=ep_config.get("decimal_places", None))
                 self._configured_eps["mqtt"] = mqtt_storage_endpoint
             elif ep_type == "ha_mqtt":
                 ha_mqtt_storage_endpoint = HomeAssistantStorageEndpoint(name="ha_mqtt",
@@ -397,7 +398,8 @@ class MqttStorageEndpoint(StorageEndpoint):
                  mqtt_host: str, 
                  client_id: str, 
                  topic_prefix: str = "dt/pqopen",
-                 compression: bool=True):
+                 compression: bool=True,
+                 limit_precision: int = None):
         """ Create a MQTT storage endpoint
 
         Parameters:
@@ -408,12 +410,14 @@ class MqttStorageEndpoint(StorageEndpoint):
             client_id: name to be used for mqtt client identification
             topic_prefix: topic prefix before device-id, no trailing /
             compression: Flag if payload should be compressed with gzip or not
+            limit_precision: Limit float precision to number of decimal places
         """
         super().__init__(name, measurement_id)
         self._device_id = device_id
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, clean_session=False)
         self._client.connect_async(host=mqtt_host)
         self._compression = compression
+        self._precision_limiter = JsonDecimalLimiter(limit_precision) if limit_precision is not None else None
         self._topic_prefix = topic_prefix
         self._client.loop_start()
 
@@ -448,6 +452,8 @@ class MqttStorageEndpoint(StorageEndpoint):
                         'measurement_uuid': self.measurement_id,
                         'data': data}
         json_item = json.dumps(data_series_obj)
+        if self._precision_limiter:
+            json_item = self._precision_limiter.process(json_item)
         if self._compression:
             self._client.publish(self._topic_prefix + f"/{self._device_id:s}/dataseries/gjson",
                             gzip.compress(json_item.encode('utf-8')), qos=2)
