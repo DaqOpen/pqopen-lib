@@ -435,6 +435,8 @@ class MqttStorageEndpoint(StorageEndpoint):
                         'timestamp': timestamp_us/1e6,
                         'data': data}
         json_item = json.dumps(agg_data_obj)
+        if self._precision_limiter:
+            json_item = self._precision_limiter.process(json_item)
         if self._compression:
             self._client.publish(self._topic_prefix + f"/{self._device_id:s}/agg_data/gjson",
                             gzip.compress(json_item.encode('utf-8')), qos=2)
