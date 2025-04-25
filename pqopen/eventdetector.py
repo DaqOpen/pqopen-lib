@@ -1,3 +1,21 @@
+"""
+DAQ-based Event Detection Module
+
+This module provides classes for detecting events in data acquisition (DAQ) systems. It includes:
+
+- A `Event` dataclass to represent detected events
+- Base `EventDetector` class for event detection logic
+- Subclasses `EventDetectorLevelLow` and `EventDetectorLevelHigh` for specific event detection criteria
+- An `EventController` class to manage multiple event detectors and process events
+
+Classes:
+    Event: A dataclass representing a detected event with associated metadata.
+    EventDetector: Base class for implementing various event detection algorithms.
+        EventDetectorLevelLow: Detects events where data drops below a specified limit.
+        EventDetectorLevelHigh: Detects events where data exceeds a specified limit.
+    EventController: Manages multiple event detectors and processes events over time.
+"""
+
 import numpy as np
 from daqopen.channelbuffer import DataChannelBuffer, AcqBuffer
 from pathlib import Path
@@ -11,6 +29,18 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Event:
+    """Represents a detected event with associated metadata.
+
+    Attributes:
+        start_ts: Timestamp (in seconds) when the event started.
+        stop_ts: Timestamp (in seconds) when the event stopped. None if ongoing.
+        start_sidx: Start sample index of the event.
+        stop_sidx: Stop sample index of the event. None if ongoing.
+        extrem_value: Extreme value associated with the event (minimum for Level Low, maximum for Level High).
+        channel: Name of the channel from which the event was detected.
+        type: Type of event ('LEVEL_LOW' or 'LEVEL_HIGH').
+        id: Unique identifier for the event.
+    """
     start_ts: float
     stop_ts: float
     start_sidx: int
@@ -22,7 +52,25 @@ class Event:
 
 
 class EventDetector(object):
+    """Base class for implementing event detection algorithms.
+
+    Attributes:
+        limit: The threshold value that defines the event boundary.
+        threshold: The buffer around the limit used to detect event completion.
+        observed_channel: The channel being monitored for events.
+        last_channel_data: The most recent data from the observed channel.
+        last_channel_sidx: The most recent sample index from the observed channel.
+        _unfinished_event: Metadata for an event that is still ongoing.
+        _type: Type of event detection algorithm ('LEVEL_LOW' or 'LEVEL_HIGH').
+    """
     def __init__(self, limit: float, threshold: float, observed_channel: DataChannelBuffer):
+        """Initializes the EventDetector with specified parameters.
+
+        Args:
+            limit: The threshold value that defines the event boundary.
+            threshold: The buffer around the limit used to detect event completion.
+            observed_channel: The channel being monitored for events.
+        """
         self.limit = limit
         self.threshold = threshold
         self.observed_channel = observed_channel
@@ -46,7 +94,18 @@ class EventDetector(object):
         return data, sidx
 
 class EventDetectorLevelLow(EventDetector):
+    """Detects events where data drops below a specified limit (LEVEL_LOW).
+
+    Inherits from EventDetector and overrides the _type to 'LEVEL_LOW'.
+    """
     def __init__(self, limit: float, threshold: float, observed_channel: DataChannelBuffer):
+        """Initializes the Level Low event detector.
+
+        Args:
+            limit: The lower threshold value.
+            threshold: The buffer below the limit used to detect event completion.
+            observed_channel: The channel being monitored for events.
+        """
         super().__init__(limit, threshold, observed_channel)
         self._type = "LEVEL_LOW"
 
@@ -86,7 +145,18 @@ class EventDetectorLevelLow(EventDetector):
         return events
 
 class EventDetectorLevelHigh(EventDetector):
+    """Detects events where data exceeds a specified limit (LEVEL_HIGH).
+
+    Inherits from EventDetector and overrides the _type to 'LEVEL_HIGH'.
+    """
     def __init__(self, limit: float, threshold: float, observed_channel: DataChannelBuffer):
+        """Initializes the Level High event detector.
+
+        Args:
+            limit: The upper threshold value.
+            threshold: The buffer above the limit used to detect event completion.
+            observed_channel: The channel being monitored for events.
+        """
         super().__init__(limit, threshold, observed_channel)
         self._type = "LEVEL_HIGH"
 
@@ -127,9 +197,25 @@ class EventDetectorLevelHigh(EventDetector):
         
 
 class EventController(object):
+    """Manages multiple event detectors and processes detected events over time.
+
+    Attributes:
+        PROCESSING_DELAY_SECONDS: Time (in seconds) after the latest sample to process events.
+        _time_channel: The channel providing timestamp data.
+        _sample_rate: Sampling rate of the system (samples per second).
+        _event_detectors: List of registered event detectors.
+        _last_processed_sidx: The last sample index processed.
+        _unfinished_events: Dictionary mapping event IDs to unfinished Event objects.
+    """
     PROCESSING_DELAY_SECONDS = 0.1
 
     def __init__(self, time_channel: AcqBuffer, sample_rate: float):
+        """Initializes the EventController.
+
+        Args:
+            time_channel: The channel providing timestamp data.
+            sample_rate: Sampling rate of the system (samples per second).
+        """
         self._time_channel = time_channel
         self._sample_rate = sample_rate
         self._event_detectors: List[EventDetector] = []

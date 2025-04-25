@@ -1,3 +1,58 @@
+# pqopen/storagecontroller.py
+
+"""
+The `pqopen/storagecontroller.py` module provides a flexible framework for managing data storage across multiple endpoints. 
+It supports various storage methods, including CSV files, MQTT (for IoT integration), and Home Assistant-specific MQTT topics.
+
+The module contains the following key components:
+
+- **StorageEndpoint**: An abstract base class defining the interface for writing data to different storage endpoints.
+- **StoragePlan**: Manages the configuration for storing data from specific channels at specified intervals.
+- **StorageController**: Orchestrates the processing and storage of data across all configured plans.
+
+# Features
+
+- Supports multiple storage endpoints (e.g., CSV, MQTT, Home Assistant).
+- Handles both raw time-series data and aggregated data.
+- Enables event-driven data storage.
+-   Designed for flexibility in integrating different storage methods.
+
+# Usage
+
+The module is designed to be used in applications requiring robust data storage solutions. 
+It is particularly useful for power quality applications, real-time monitoring systems, 
+and scenarios where data needs to be stored locally and/or transmitted to remote services.
+
+Examples:
+
+```python
+endpoints = {
+"csv": {"data_dir": "/tmp/"},
+"mqtt": {
+    "hostname": "localhost",
+    "client_id": "pqopen-mqtt",
+    "topic_prefix": "dt/pqopen"
+    }
+}
+storage_plans = {
+"plan1": {
+    "endpoint": "csv",
+    "interval_sec": 600,
+    "channels": ["channel1", "channel2"]
+    },
+"plan2": {
+    "endpoint": "mqtt",
+    "interval_sec": 10,
+    "store_events": True
+    }
+}
+# Initialize the StorageController and configure endpoints and plans
+storage_controller = StorageController(time_channel, sample_rate)
+storage_controller.setup_endpoints_and_storageplans(endpoints=endpoints, storage_plans=storage_plans, available_channels=channels, measurement_id="unique_measurement_id", device_id="device_123", start_timestamp_us=start_ts)
+```
+For detailed usage and implementation details, refer to the individual class documentation within the module.
+"""
+
 import numpy as np
 from pqopen.helper import floor_timestamp
 from pqopen.eventdetector import Event
@@ -49,7 +104,12 @@ class StorageEndpoint(object):
 class StoragePlan(object):
     """Defines a plan for storing data with specified intervals and channels."""
 
-    def __init__(self, storage_endpoint: StorageEndpoint, start_timestamp_us: int, interval_seconds=10, storage_name='aggregated_data', store_events=False):
+    def __init__(self, 
+                 storage_endpoint: StorageEndpoint, 
+                 start_timestamp_us: int, 
+                 interval_seconds: int=10, 
+                 storage_name: str='aggregated_data', 
+                 store_events: bool=False):
         """
         Parameters:
             storage_endpoint: The storage endpoint to use.
@@ -252,7 +312,6 @@ class StorageController(object):
             available_channels: List of all available channels
             measurement_id: The actual measurement id for tagging the session
             device_id: Id of the device for unique tagging the data origin
-            client_id: Id of the client for mqtt or other endpoints
             start_timestamp_us: Timestamp of the start of measurmement
 
         Raises:
@@ -396,12 +455,12 @@ class MqttStorageEndpoint(StorageEndpoint):
             self._client.publish(self._topic_prefix + f"/{self._device_id:s}/dataseries/json",
                             json_item.encode('utf-8'), qos=2)
             
-    def write_event(self, event):
+    def write_event(self, event: Event):
         """
         Write event data message
 
         Parameters:
-            event: The event to be writtem´n
+            event: The event to be written
         """
         event_obj = {
             "type": "event",

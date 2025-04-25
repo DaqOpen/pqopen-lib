@@ -187,10 +187,23 @@ class PowerSystem(object):
         self._update_calc_channels()
 
     def enable_debug_channels(self):
+        """
+        Enables channel for debugging purposes and exposes
+        them to a separate output_channel group named 'debug_channels'
+        """
         self._features["debug_channels"] = True
         self._update_calc_channels()
 
-    def enable_energy_channels(self, persist_file: Path, ignore_value = False):
+    def enable_energy_channels(self, persist_file: Path, ignore_value: bool = False):
+        """
+        Enables the calculation of energy channels (overall, not by phase)
+        Two separate channels are created, one for positive and one for negative energy (like
+        energy consumption and delivery of typical metering devices)
+
+        Parameters:
+            persist_file: file path of the file, where the persisted data is stored and loaded from
+            ignore_value: Ignore persist value for initializing the energy counter
+        """
         if persist_file.exists() and not ignore_value:
             energy_counters = json.loads(persist_file.read_text())
         else:
