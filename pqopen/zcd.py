@@ -1,5 +1,8 @@
 import numpy as np
 from scipy import signal
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ZeroCrossDetector:
     """
@@ -45,6 +48,7 @@ class ZeroCrossDetector:
         self._first_run = True
         self._last_zc_p = None
         self._last_zc_n = None
+        self._last_zc_n_val = None
 
         # Calculate the filter delay in samples
         w, h = signal.freqz(self._filter_coeff[0], self._filter_coeff[1],
@@ -81,7 +85,7 @@ class ZeroCrossDetector:
         diff_data_p = np.diff(np.sign(filtered_data - self.threshold))
         diff_data_n = np.diff(np.sign(filtered_data + self.threshold))
 
-        threshold_p_cross = np.where(diff_data_p > 0)[0]
+        threshold_p_cross = np.where(diff_data_p > 0)[0] + 1
         threshold_n_cross = np.where(diff_data_n > 0)[0]
 
         self._last_filtered_sample = filtered_data[-1]
@@ -104,9 +108,7 @@ class ZeroCrossDetector:
                     continue
             x1 = threshold_n_cross[n_idx]
             x2 = threshold_p_cross[p_idx]
-            if x1 == x2:
-                x2 += 1
-            y1 = filtered_data[x1]
+            y1 = filtered_data[x1] if x1 >= 0 else self._last_zc_n_val
             y2 = filtered_data[x2]
             k = (y2 - y1) / (x2 - x1)
             d = y1 - k * x1
@@ -118,6 +120,7 @@ class ZeroCrossDetector:
         # Update the last negative threshold-crossing for the next block
         if last_used_p_idx < len(threshold_p_cross) and len(threshold_n_cross) > 0:
             self._last_zc_n = threshold_n_cross[-1] - len(data)
+            self._last_zc_n_val = filtered_data[threshold_n_cross[-1]]
         else:
             self._last_zc_n = None
 
