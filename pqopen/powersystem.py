@@ -308,6 +308,7 @@ class PowerSystem(object):
                 continue
             # Calculate Frequency
             frequency = self._samplerate/(self._zero_crossings[-1] + actual_zc_frac - self._zero_crossings[-2] - self._last_zc_frac)
+            self._last_zc_frac = actual_zc_frac
             # Add actual zero cross counter to debug channel if enabled
             if "pidx" in self._calc_channels["one_period"]['_debug']:
                 self._calc_channels["one_period"]['_debug']['pidx'].put_data_single(self._zero_crossings[-1], self._zero_cross_counter)
@@ -320,7 +321,6 @@ class PowerSystem(object):
                 self._process_fluctuation_calc(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
         
         self._last_processed_sidx = stop_acq_sidx
-        self._last_zc_frac = actual_zc_frac
 
     def _process_one_period(self, period_start_sidx: int, period_stop_sidx: int, frequency: float):
         """
