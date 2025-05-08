@@ -102,8 +102,17 @@ class ZeroCrossDetector:
                 # Skip n-threshold-crossings without a corresponding positive crossing
                 if threshold_n_cross[n_idx + 1] <= threshold_p_cross[p_idx]:
                     continue
-            real_zc = (threshold_p_cross[p_idx] - threshold_n_cross[n_idx] + 1) / 2 + threshold_n_cross[n_idx]
-            zero_crossings.append(np.round(real_zc + self.filter_delay_samples, 0))
+            x1 = threshold_n_cross[n_idx]
+            x2 = threshold_p_cross[p_idx]
+            if x1 == x2:
+                x2 += 1
+            y1 = filtered_data[x1]
+            y2 = filtered_data[x2]
+            k = (y2 - y1) / (x2 - x1)
+            d = y1 - k * x1
+            real_zc = -d/k
+            #real_zc = (threshold_p_cross[p_idx] - threshold_n_cross[n_idx] + 1) / 2 + threshold_n_cross[n_idx]
+            zero_crossings.append(real_zc + self.filter_delay_samples)
             last_used_p_idx = p_idx
 
         # Update the last negative threshold-crossing for the next block

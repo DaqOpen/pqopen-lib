@@ -96,6 +96,7 @@ class PowerSystem(object):
                                                       samplerate=self._samplerate)
         self._zero_crossings = [0]*20
         self._zero_cross_counter = 0
+        self._last_zc_frac = 0.0
         self._calculation_mode = "NORMAL"
         self._last_known_freq = self.nominal_frequency
 
@@ -296,6 +297,7 @@ class PowerSystem(object):
         for zc in zero_crossings:
             self._zero_cross_counter += 1
             actual_zc = int(np.round(zc)) + start_acq_sidx
+            actual_zc_frac = zc - int(np.round(zc)) 
             # Ignore Zero Crossing before actual stop Sample IDX
             if actual_zc >= stop_acq_sidx:
                 logger.warning("Warning: Detected Zerocross before actual sample count")
@@ -304,11 +306,13 @@ class PowerSystem(object):
             self._zero_crossings.append(actual_zc)
             if self._zero_cross_counter <= 1:
                 continue
+            # Calculate Frequency
+            frequency = self._samplerate/(self._zero_crossings[-1] + actual_zc_frac - self._zero_crossings[-2] - self._last_zc_frac)
             # Add actual zero cross counter to debug channel if enabled
             if "pidx" in self._calc_channels["one_period"]['_debug']:
                 self._calc_channels["one_period"]['_debug']['pidx'].put_data_single(self._zero_crossings[-1], self._zero_cross_counter)
             # Process one period calculation, start with second zc
-            self._process_one_period(self._zero_crossings[-2], self._zero_crossings[-1])
+            self._process_one_period(self._zero_crossings[-2], self._zero_crossings[-1], frequency)
             if ((self._zero_cross_counter-1) % self.nper) == 0 and (self._zero_cross_counter > self.nper):
                 # Process multi-period
                 self._process_multi_period(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
@@ -316,8 +320,9 @@ class PowerSystem(object):
                 self._process_fluctuation_calc(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
         
         self._last_processed_sidx = stop_acq_sidx
+        self._last_zc_frac = actual_zc_frac
 
-    def _process_one_period(self, period_start_sidx: int, period_stop_sidx: int):
+    def _process_one_period(self, period_start_sidx: int, period_stop_sidx: int, frequency: float):
         """
         Processes data for a single period, calculating voltage, current, and power.
 
@@ -325,7 +330,6 @@ class PowerSystem(object):
             period_start_sidx: Start sample index of the period.
             period_stop_sidx: Stop sample index of the period.
         """
-        frequency = self._samplerate/(period_stop_sidx - period_start_sidx)
         self._calc_channels["one_period"]['power']['freq'].put_data_single(period_stop_sidx, frequency)
         if "sidx" in self._calc_channels["one_period"]['_debug']:
             self._calc_channels["one_period"]['_debug']['sidx'].put_data_single(period_stop_sidx, period_stop_sidx)
@@ -520,7 +524,7 @@ class PowerSystem(object):
             self._pst_last_calc_sidx = stop_sidx
             self._pst_next_round_ts = floor_timestamp(stop_ts, self._pst_interval_sec, ts_resolution="us")+self._pst_interval_sec*1_000_000
 
-    def _detect_zero_crossings(self, start_acq_sidx: int, stop_acq_sidx: int) -> List[int]:
+    def _detect_zero_crossings(self, start_acq_sidx: int, stop_acq_sidx: int) -> List[float]:
         """
         Detects zero crossings in the signal.
 
