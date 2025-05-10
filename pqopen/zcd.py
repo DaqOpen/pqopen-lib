@@ -120,7 +120,11 @@ class ZeroCrossDetector:
         # Update the last negative threshold-crossing for the next block
         if last_used_p_idx < len(threshold_p_cross) and len(threshold_n_cross) > 0:
             self._last_zc_n = threshold_n_cross[-1] - len(data)
-            self._last_zc_n_val = filtered_data[threshold_n_cross[-1]]
+            if threshold_n_cross[-1] < 0:
+                logger.debug("Zero Cross behind filtered data")
+                self._last_zc_n_val = -self.threshold
+            else:
+                self._last_zc_n_val = filtered_data[threshold_n_cross[-1]]
         else:
             self._last_zc_n = None
 
