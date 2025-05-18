@@ -78,7 +78,7 @@ class StorageEndpoint(object):
         self.name = name
         self.measurement_id = measurement_id
 
-    def write_data_series(self, data: dict):
+    def write_data_series(self, data: dict, **kwargs):
         """
         Writes a series of data to the storage endpoint.
 
@@ -87,7 +87,7 @@ class StorageEndpoint(object):
         """
         pass
 
-    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int):
+    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int, **kwargs):
         """
         Writes aggregated data to the storage endpoint.
 
@@ -109,7 +109,8 @@ class StoragePlan(object):
                  start_timestamp_us: int, 
                  interval_seconds: int=10, 
                  storage_name: str='aggregated_data', 
-                 store_events: bool=False):
+                 store_events: bool=False,
+                 additional_config: dict={}):
         """
         Parameters:
             storage_endpoint: The storage endpoint to use.
@@ -129,6 +130,7 @@ class StoragePlan(object):
         self.last_storage_sample_index = 0
 
         self.storage_name = storage_name
+        self._additional_config = additional_config
 
     def add_channel(self, channel: DataChannelBuffer):
         """
@@ -163,7 +165,7 @@ class StoragePlan(object):
                     channel_timestamps.append(int(time_channel.read_data_by_index(sample_index, sample_index + 1)[0]))
                 data[channel["channel"].name] = {'data': channel_data, 'timestamps': channel_timestamps}
         if data:
-            self.storage_endpoint.write_data_series(data)
+            self.storage_endpoint.write_data_series(data, **self._additional_config)
 
     def store_aggregated_data(self, stop_sidx: int):
         """
@@ -181,7 +183,7 @@ class StoragePlan(object):
             data[channel["channel"].name] = channel_data
             channel["last_store_sidx"] = last_included_sidx+1 if last_included_sidx else stop_sidx
 
-        self.storage_endpoint.write_aggregated_data(data, self.next_storage_timestamp, self.interval_seconds)
+        self.storage_endpoint.write_aggregated_data(data, self.next_storage_timestamp, self.interval_seconds, **self._additional_config)
         #self.last_storage_sample_index = last_included_sidx+1 if last_included_sidx else stop_sidx
 
     def store_event(self, event: Event):
@@ -351,7 +353,8 @@ class StorageController(object):
                                        start_timestamp_us=start_timestamp_us,
                                        interval_seconds=sp_config.get("interval_sec", 600),
                                        storage_name=sp_name,
-                                       store_events=sp_config.get("store_events", False))
+                                       store_events=sp_config.get("store_events", False),
+                                       additional_config=sp_config)
             channels_to_store = sp_config.get("channels", [])
             if not channels_to_store:
                 # Add all available channels
@@ -421,7 +424,7 @@ class MqttStorageEndpoint(StorageEndpoint):
         self._topic_prefix = topic_prefix
         self._client.loop_start()
 
-    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int):
+    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int, **kwargs):
         """ Write an aggregated data message
 
         Parameters:
@@ -437,14 +440,15 @@ class MqttStorageEndpoint(StorageEndpoint):
         json_item = json.dumps(agg_data_obj)
         if self._precision_limiter:
             json_item = self._precision_limiter.process(json_item)
+        topic_prefix = kwargs.get("mqtt_topic_prefix", self._topic_prefix)
         if self._compression:
-            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/agg_data/gjson",
+            self._client.publish(topic_prefix + f"/{self._device_id:s}/agg_data/gjson",
                             gzip.compress(json_item.encode('utf-8')), qos=2)
         else:
-            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/agg_data/json",
+            self._client.publish(topic_prefix + f"/{self._device_id:s}/agg_data/json",
                             json_item.encode('utf-8'), qos=2)
             
-    def write_data_series(self, data: dict):
+    def write_data_series(self, data: dict, **kwargs):
         """ Write a timeseries data message
 
         Parameters:
@@ -456,11 +460,12 @@ class MqttStorageEndpoint(StorageEndpoint):
         json_item = json.dumps(data_series_obj)
         if self._precision_limiter:
             json_item = self._precision_limiter.process(json_item)
+        topic_prefix = kwargs.get("mqtt_topic_prefix", self._topic_prefix)
         if self._compression:
-            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/dataseries/gjson",
+            self._client.publish(topic_prefix + f"/{self._device_id:s}/dataseries/gjson",
                             gzip.compress(json_item.encode('utf-8')), qos=2)
         else:
-            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/dataseries/json",
+            self._client.publish(topic_prefix + f"/{self._device_id:s}/dataseries/json",
                             json_item.encode('utf-8'), qos=2)
             
     def write_event(self, event: Event):
@@ -556,7 +561,7 @@ class HomeAssistantStorageEndpoint(StorageEndpoint):
                                 "value_template": "{{ value_json.W_neg}}"}
             client.publish("homeassistant/sensor/activeEnergyNegative/config", json.dumps(homeassistant_config), retain=True)
 
-    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int):
+    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int, **kwargs):
         """ Write an aggregated data message
 
         Parameters:
@@ -585,7 +590,7 @@ class CsvStorageEndpoint(StorageEndpoint):
         self._file_path = file_path if isinstance(file_path, Path) else Path(file_path)
         self._file_path.mkdir(parents=True, exist_ok=True)
 
-    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int):
+    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int, **kwargs):
         # Filter scalar values for now
         data = {key: value for key, value in data.items() if isinstance(value, (float, int, type(None)))}
         file_path = self._file_path/f"{self.measurement_id}_{interval_seconds:d}s.csv"
