@@ -233,6 +233,7 @@ class PowerSystem(object):
             self._next_round_ts = floor_timestamp(last_zc_ts, self._resync_interval_sec, ts_resolution="us")+self._resync_interval_sec*1_000_000
         
     def _update_calc_channels(self):
+        self._channel_update_needed = False
         self.output_channels = {}
         for phase in self._phases:
             phase.update_calc_channels(self._features)
@@ -291,7 +292,6 @@ class PowerSystem(object):
         # Initially Update Calc Channels
         if self._channel_update_needed:
             self._update_calc_channels()
-            self._channel_update_needed = False
 
         # Process new samples in buffer
         if not self._phases:
