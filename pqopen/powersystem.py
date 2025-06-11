@@ -99,6 +99,7 @@ class PowerSystem(object):
         self._last_zc_frac = 0.0
         self._calculation_mode = "NORMAL"
         self._last_known_freq = self.nominal_frequency
+        self._channel_update_needed = False
 
 
     def _prepare_calc_channels(self):
@@ -119,7 +120,7 @@ class PowerSystem(object):
         if not name:
             name = str(len(self._phases)+1)
         self._phases.append(PowerPhase(u_channel=u_channel, i_channel=i_channel, number=len(self._phases)+1, name=name))
-        self._update_calc_channels()
+        self._channel_update_needed = True
 
     def enable_harmonic_calculation(self, num_harmonics: int = 50):
         """
@@ -129,7 +130,7 @@ class PowerSystem(object):
             num_harmonics: Number of harmonics to calculate. Defaults to 50.
         """
         self._features["harmonics"] = num_harmonics
-        self._update_calc_channels()
+        self._channel_update_needed = True
 
     def enable_fluctuation_calculation(self, nominal_voltage: float = 230, pst_interval_sec: int = 600):
         self._features["fluctuation"] = True
@@ -137,7 +138,7 @@ class PowerSystem(object):
         self._pst_interval_sec = pst_interval_sec
         self._pst_next_round_ts = 0
         self._pst_last_calc_sidx = 0
-        self._update_calc_channels()
+        self._channel_update_needed = True
 
     def enable_nper_abs_time_sync(self, time_channel: AcqBuffer, interval_sec: int = 600):
         """
@@ -162,7 +163,7 @@ class PowerSystem(object):
             frequency: Expected frequency of signaling voltage
         """
         self._features["mains_signaling_voltage"] = frequency
-        self._update_calc_channels()
+        self._channel_update_needed = True
 
     def enable_under_over_deviation_calculation(self, u_din: float):
         """
@@ -173,7 +174,7 @@ class PowerSystem(object):
             u_din: Dimensioned voltage (typ. nominal voltage)
         """
         self._features["under_over_deviation"] = u_din
-        self._update_calc_channels()
+        self._channel_update_needed = True
 
     def enable_mains_signaling_tracer(self, frequency: float, trigger_level: float):
         """
@@ -185,7 +186,7 @@ class PowerSystem(object):
             trigger_level: Binary conversion level in volt
         """
         self._features["mains_signaling_tracer"] = {"frequency": frequency, "trigger_level": trigger_level}
-        self._update_calc_channels()
+        self._channel_update_needed = True
 
     def enable_debug_channels(self):
         """
@@ -193,7 +194,7 @@ class PowerSystem(object):
         them to a separate output_channel group named 'debug_channels'
         """
         self._features["debug_channels"] = True
-        self._update_calc_channels()
+        self._channel_update_needed = True
 
     def enable_energy_channels(self, persist_file: Path, ignore_value: bool = False):
         """
@@ -210,7 +211,7 @@ class PowerSystem(object):
         else:
             energy_counters = {}
         self._features["energy_channels"] = {"persist_file": persist_file, "energy_counters": energy_counters}
-        self._update_calc_channels()
+        self._channel_update_needed = True
 
     def _resync_nper_abs_time(self, zc_idx: int):
         if not self._features["nper_abs_time_sync"]:
@@ -255,9 +256,9 @@ class PowerSystem(object):
                 self._calc_channels["multi_period"]["power"]["p_pos"] = DataChannelBuffer('P_pos', agg_type='mean', unit="W")
                 self._calc_channels["multi_period"]["power"]["p_neg"] = DataChannelBuffer('P_neg', agg_type='mean', unit="W")
             if self._features["energy_channels"]:
-                self._calc_channels["multi_period"]["energy"]["w_pos"] = DataChannelBuffer('W_pos', agg_type='max', unit="Wh")
+                self._calc_channels["multi_period"]["energy"]["w_pos"] = DataChannelBuffer('W_pos', agg_type='max', unit="Wh", dtype=np.float64)
                 self._calc_channels["multi_period"]["energy"]["w_pos"].last_sample_value = self._features["energy_channels"]["energy_counters"].get("W_pos", 0.0)
-                self._calc_channels["multi_period"]["energy"]["w_neg"] = DataChannelBuffer('W_neg', agg_type='max', unit="Wh")
+                self._calc_channels["multi_period"]["energy"]["w_neg"] = DataChannelBuffer('W_neg', agg_type='max', unit="Wh", dtype=np.float64)
                 self._calc_channels["multi_period"]["energy"]["w_neg"].last_sample_value = self._features["energy_channels"]["energy_counters"].get("W_neg", 0.0)
 
             for agg_interval, phys_types in self._calc_channels.items():
@@ -287,6 +288,11 @@ class PowerSystem(object):
         """
         Processes new data samples, performing zero-crossing detection and calculations for each period.
         """
+        # Initially Update Calc Channels
+        if self._channel_update_needed:
+            self._update_calc_channels()
+            self._channel_update_needed = False
+
         # Process new samples in buffer
         if not self._phases:
             raise ValueError("No phases defined yet")
@@ -358,6 +364,8 @@ class PowerSystem(object):
                         output_channel.put_data_single(phase_period_stop_sidx, msv_edge)
                 if phys_type == "msv_mag":
                     output_channel.put_data_single(phase_period_stop_sidx, msv_value)
+                if phys_type == "slope":
+                    output_channel.put_data_single(phase_period_stop_sidx, np.abs(np.diff(u_values)).max())
             for phys_type, output_channel in phase._calc_channels["half_period"]["voltage"].items():
                 if phys_type == "trms":
                     # First half period
@@ -632,6 +640,7 @@ class PowerPhase(object):
         self._calc_channels["multi_period"]["voltage"] = {}
         self._calc_channels["half_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_hp_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_rms'.format(self.name), agg_type='rms', unit="V")
+        self._calc_channels["one_period"]["voltage"]["slope"] = DataChannelBuffer('U{:s}_1p_slope'.format(self.name), agg_type='max', unit="V/s")
         self._calc_channels["one_period_ovlp"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_hp_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["multi_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_rms'.format(self.name), agg_type='rms', unit="V")
 

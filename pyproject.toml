@@ -12,14 +12,14 @@ packages = ["pqopen"]
 
 [project]
 name = "pqopen-lib"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
     "numpy",
     "daqopen-lib",
     "scipy"
 ]
 authors = [
-  { name="Michael Oberhofer", email="info@pqopen.com" },
+  { name="Michael Oberhofer", email="michael@daqopen.com" },
 ]
 description = "A power quality processing library for calculating parameters from waveform data"
 readme = "README.md"
