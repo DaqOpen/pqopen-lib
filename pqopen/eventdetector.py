@@ -248,11 +248,11 @@ class EventController(object):
                             del self._unfinished_events[event["id"]]
                     else:
                         stop_ts = None
-                    single_event = Event(start_ts=start_ts,
-                                         stop_ts=stop_ts if stop_ts else None,
+                    single_event = Event(start_ts=float(start_ts),
+                                         stop_ts=float(stop_ts) if stop_ts else None,
                                          start_sidx=event["start_sidx"],
                                          stop_sidx=event["stop_sidx"],
-                                         extrem_value=event["extrem_value"],
+                                         extrem_value=float(event["extrem_value"]),
                                          channel=event_detector.observed_channel.name,
                                          type=event_detector._type,
                                          id=event["id"])
