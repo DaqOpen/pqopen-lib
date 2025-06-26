@@ -493,13 +493,13 @@ class PowerSystem(object):
         if "w_pos" in self._calc_channels["multi_period"]["energy"]:
             prev_w_pos_value = self._calc_channels["multi_period"]["energy"]["w_pos"].last_sample_value
             energy = (stop_sidx - start_sidx)/self._samplerate/3600*p_sum if p_sum > 0 else 0.0 # Energy in Wh
-            self._calc_channels["multi_period"]["energy"]["w_pos"].put_data_single(stop_sidx, prev_w_pos_value + energy)
+            self._calc_channels["multi_period"]["energy"]["w_pos"].put_data_single(stop_sidx, prev_w_pos_value + float(energy))
         
         # Calculate Negative Energy
         if "w_neg" in self._calc_channels["multi_period"]["energy"]:
             prev_w_neg_value = self._calc_channels["multi_period"]["energy"]["w_neg"].last_sample_value
             energy = -(stop_sidx - start_sidx)/self._samplerate/3600*p_sum if p_sum < 0 else 0.0 # Energy in Wh
-            self._calc_channels["multi_period"]["energy"]["w_neg"].put_data_single(stop_sidx, prev_w_neg_value + energy)
+            self._calc_channels["multi_period"]["energy"]["w_neg"].put_data_single(stop_sidx, prev_w_neg_value + float(energy))
 
         # Calculate unbalance (3-phase)
         if "unbal_0" in self._calc_channels["multi_period"]["voltage"]:

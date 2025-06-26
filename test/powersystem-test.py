@@ -460,10 +460,10 @@ class TestPowerSystemCalculationThreePhase(unittest.TestCase):
         i2_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t -120*np.pi/180) 
         i3_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t+ 120*np.pi/180)
 
-        Path(SCRIPT_DIR+"/data_files/energy.json").write_text(json.dumps({"W_pos": 1_000_000, "W_neg": 10}))
+        Path(SCRIPT_DIR+"/data_files/energy.json").write_text(json.dumps({"W_pos": 1_000_000.1, "W_neg": 10}))
 
-        expected_w_pos = np.array([0,1, 2, 3])*3*0.2/3600 + 1_000_000
-        expected_w_neg = np.array([0, 1, 2, 3])*0.0/3600 + 10
+        expected_w_pos = np.array([1, 2, 3, 4])*3*0.2/3600 + 1_000_000.1
+        expected_w_neg = np.array([1, 2, 3, 4])*0.0/3600 + 10
 
         self.power_system.enable_energy_channels(Path(SCRIPT_DIR+"/data_files/energy.json"))
         self.u1_channel.put_data(u1_values)
