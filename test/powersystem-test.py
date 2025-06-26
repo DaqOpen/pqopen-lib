@@ -451,6 +451,37 @@ class TestPowerSystemCalculationThreePhase(unittest.TestCase):
         p_neg, sidx = self.power_system.output_channels["P_neg"].read_data_by_acq_sidx(0, u1_values.size)
         self.assertIsNone(np.testing.assert_allclose(p_neg, expected_p_neg, rtol=0.01))
 
+    def test_energy_calc_pos_highoffset(self):
+        t = np.linspace(0, 1, int(self.power_system._samplerate), endpoint=False)
+        u1_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)
+        u2_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t - 120*np.pi/180)
+        u3_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t + 120*np.pi/180)
+        i1_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t)
+        i2_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t -120*np.pi/180) 
+        i3_values = 1.0*np.sqrt(2)*np.sin(2*np.pi*50*t+ 120*np.pi/180)
+
+        Path(SCRIPT_DIR+"/data_files/energy.json").write_text(json.dumps({"W_pos": 1_000_000, "W_neg": 10}))
+
+        expected_w_pos = np.array([0,1, 2, 3])*3*0.2/3600 + 1_000_000
+        expected_w_neg = np.array([0, 1, 2, 3])*0.0/3600 + 10
+
+        self.power_system.enable_energy_channels(Path(SCRIPT_DIR+"/data_files/energy.json"))
+        self.u1_channel.put_data(u1_values)
+        self.u2_channel.put_data(u2_values)
+        self.u3_channel.put_data(u3_values)
+
+        self.i1_channel.put_data(i1_values)
+        self.i2_channel.put_data(i2_values)
+        self.i3_channel.put_data(i3_values)
+
+        self.power_system.process()
+
+        # Check Energy W_pos
+        w_pos, sidx = self.power_system.output_channels["W_pos"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_array_almost_equal(w_pos, expected_w_pos))
+        w_neg, sidx = self.power_system.output_channels["W_neg"].read_data_by_acq_sidx(0, u1_values.size)
+        self.assertIsNone(np.testing.assert_array_almost_equal(w_neg, expected_w_neg))
+
 class TestPowerSystemNperSync(unittest.TestCase):
     def setUp(self):
         self.u_channel = AcqBuffer()
