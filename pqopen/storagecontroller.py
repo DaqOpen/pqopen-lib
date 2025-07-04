@@ -342,6 +342,14 @@ class StorageController(object):
                                                             topic_prefix=ep_config.get("topic_prefix", "pqopen/data"),
                                                             qos=ep_config.get("qos", 0))
                 self._configured_eps["ha_mqtt"] = ha_mqtt_storage_endpoint
+            elif ep_type == "victron_mqtt":
+                victron_mqtt_storage_endpoint = VictronStorageEndpoint(name="victron_mqtt",
+                                                            device_id=device_id, 
+                                                            mqtt_host=ep_config.get("hostname", "localhost"), 
+                                                            client_id=ep_config.get("client_id", "pqopen-victron"),
+                                                            topic_prefix=ep_config.get("topic_prefix", "pqopen/meter"),
+                                                            qos=ep_config.get("qos", 0))
+                self._configured_eps["victron_mqtt"] = victron_mqtt_storage_endpoint
             else:
                 raise NotImplementedError(f"{ep_type:s} not implemented")
         for sp_name, sp_config in storage_plans.items():
@@ -572,7 +580,53 @@ class HomeAssistantStorageEndpoint(StorageEndpoint):
         self._client.publish(self._topic_prefix, json.dumps(data).encode("utf-8"), qos=self._qos)
         logger.debug("Published HA-MQTT Message")
             
-    
+class VictronStorageEndpoint(StorageEndpoint):
+    """Represents a MQTT endpoint (MQTT) for Victron Power Meter Emulation.
+       https://github.com/mr-manuel/venus-os_dbus-mqtt-grid
+    """
+    def __init__(self, 
+                 name: str, 
+                 device_id: str, 
+                 mqtt_host: str, 
+                 client_id: str, 
+                 topic_prefix: str = "pqopen/victron",
+                 qos: int = 0):
+        """ Create an endpoint for Victron via MQTT
+
+        Parameters:
+            name: The name of the endpoint
+            device_id: The device Id
+            mqtt_host: hostname of the MQTT broker.
+            client_id: name to be used for mqtt client identification
+            topic_prefix: topic prefix before device-id, no trailing /
+            qos: mqtt quality of service. valid values 0, 1, 2
+        """
+        super().__init__(name, measurement_id=None)
+        self._device_id = device_id
+        self._topic_prefix = topic_prefix
+        self._qos = qos
+        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, clean_session=True)
+        self._client.on_connect = self._on_connect
+        self._client.connect_async(host=mqtt_host)
+        self._client.loop_start()
+
+    def _on_connect(self, client, userdata, flags, reason_code, properties):
+            logger.debug("Victron-MQTT Connected")
+
+    def write_aggregated_data(self, data: dict, timestamp_us: int, interval_seconds: int, **kwargs):
+        """ Write an aggregated data message
+
+        Parameters:
+            data: The data object to be sent
+            timestamp_us: Timestamp (in µs) of the data set
+            interval_seconds: Aggregation intervall, used as data tag
+        """
+        if "P" in data:
+            payload = {"grid": {"power": data["P"]}}
+            self._client.publish(self._topic_prefix, json.dumps(payload).encode("utf-8"), qos=self._qos)
+            logger.debug("Published Victron MQTT Message")
+        else:
+            logger.debug("Can't publish Victron MQTT Message, P not found")
 
 class CsvStorageEndpoint(StorageEndpoint):
     """Represents a csv storage endpoint"""
