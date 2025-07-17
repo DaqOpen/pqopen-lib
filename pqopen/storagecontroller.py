@@ -188,7 +188,7 @@ class StoragePlan(object):
 
     def store_event(self, event: Event):
         if self._store_events_enabled:
-            self.storage_endpoint.write_event(event)
+            self.storage_endpoint.write_event(event, **self._additional_config)
 
 class StorageController(object):
     """Manages multiple storage plans and processes data for storage."""
@@ -476,7 +476,7 @@ class MqttStorageEndpoint(StorageEndpoint):
             self._client.publish(topic_prefix + f"/{self._device_id:s}/dataseries/json",
                             json_item.encode('utf-8'), qos=2)
             
-    def write_event(self, event: Event):
+    def write_event(self, event: Event, **kwargs):
         """
         Write event data message
 
@@ -494,11 +494,12 @@ class MqttStorageEndpoint(StorageEndpoint):
                      "id": str(event.id)}
         }
         json_item = json.dumps(event_obj)
+        topic_prefix = kwargs.get("mqtt_topic_prefix", self._topic_prefix)
         if self._compression:
-            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/event/gjson",
+            self._client.publish(topic_prefix + f"/{self._device_id:s}/event/gjson",
                             gzip.compress(json_item.encode('utf-8')), qos=2)
         else:
-            self._client.publish(self._topic_prefix + f"/{self._device_id:s}/event/json",
+            self._client.publish(topic_prefix + f"/{self._device_id:s}/event/json",
                             json_item.encode('utf-8'), qos=2)
             
 class HomeAssistantStorageEndpoint(StorageEndpoint):
