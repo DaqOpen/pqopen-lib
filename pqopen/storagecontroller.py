@@ -371,10 +371,7 @@ class StorageController(object):
             else:
                 for channel in channels_to_store:
                     if channel in available_channels:
-                        if len(available_channels[channel]._data.shape) == 1:
-                            storage_plan.add_channel(available_channels[channel])
-                        else:
-                            logger.warning(f"Channel {channel} not a scalar")
+                        storage_plan.add_channel(available_channels[channel])
                     else:      
                         logger.warning(f"Channel {channel} not available for storing")
             self.add_storage_plan(storage_plan)
