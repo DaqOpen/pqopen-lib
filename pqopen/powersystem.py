@@ -29,7 +29,7 @@ from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
 from pqopen.zcd import ZeroCrossDetector
 import pqopen.powerquality as pq
 from pqopen.helper import floor_timestamp
-
+from pqopen.goertzel import calc_single_freq 
 logger = logging.getLogger(__name__)
 
 class PowerSystem(object):
@@ -87,7 +87,8 @@ class PowerSystem(object):
                           "under_over_deviation": 0,
                           "mains_signaling_tracer": {},
                           "debug_channels": False,
-                          "energy_channels": {}}
+                          "energy_channels": {},
+                          "one_period_fundamental": False}
         self._prepare_calc_channels()
         self.output_channels: Dict[str, DataChannelBuffer] = {}
         self._last_processed_sidx = 0
@@ -211,6 +212,13 @@ class PowerSystem(object):
         else:
             energy_counters = {}
         self._features["energy_channels"] = {"persist_file": persist_file, "energy_counters": energy_counters}
+        self._channel_update_needed = True
+
+    def enable_one_period_fundamental(self):
+        """
+        Enables the calculation of one (single) period fundamental values
+        """
+        self._features["one_period_fundamental"] = True
         self._channel_update_needed = True
 
     def _resync_nper_abs_time(self, zc_idx: int):
@@ -366,6 +374,10 @@ class PowerSystem(object):
                     output_channel.put_data_single(phase_period_stop_sidx, msv_value)
                 if phys_type == "slope":
                     output_channel.put_data_single(phase_period_stop_sidx, np.abs(np.diff(u_values)).max())
+                if phys_type == "fund_rms":
+                    # Use sample-discrete frequency, not the exact one for full cycle
+                    fund_amp, fund_phase = calc_single_freq(u_values, self._samplerate/len(u_values), self._samplerate)
+                    output_channel.put_data_single(phase_period_stop_sidx, fund_amp)
             for phys_type, output_channel in phase._calc_channels["half_period"]["voltage"].items():
                 if phys_type == "trms":
                     # First half period
@@ -641,6 +653,7 @@ class PowerPhase(object):
         self._calc_channels["half_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_hp_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period"]["voltage"]["slope"] = DataChannelBuffer('U{:s}_1p_slope'.format(self.name), agg_type='max', unit="V/s")
+        self._calc_channels["one_period"]["voltage"]["fund_rms"] = DataChannelBuffer('U{:s}_1p_H1_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period_ovlp"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_hp_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["multi_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_rms'.format(self.name), agg_type='rms', unit="V")
 
