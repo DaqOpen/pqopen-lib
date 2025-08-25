@@ -653,7 +653,6 @@ class PowerPhase(object):
         self._calc_channels["half_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_hp_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period"]["voltage"]["slope"] = DataChannelBuffer('U{:s}_1p_slope'.format(self.name), agg_type='max', unit="V/s")
-        self._calc_channels["one_period"]["voltage"]["fund_rms"] = DataChannelBuffer('U{:s}_1p_H1_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period_ovlp"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_hp_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["multi_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_rms'.format(self.name), agg_type='rms', unit="V")
 
@@ -677,6 +676,9 @@ class PowerPhase(object):
         if "mains_signaling_tracer" in features and features["mains_signaling_tracer"]:
             self._calc_channels["one_period"]["voltage"]["msv_mag"] = DataChannelBuffer('U{:s}_1p_msv'.format(self.name), agg_type='max', unit="V")
             self._calc_channels["one_period"]["voltage"]["msv_bit"] = DataChannelBuffer('U{:s}_msv_bit'.format(self.name), unit="")
+
+        if "one_period_fundamental" in features and features["one_period_fundamental"]:
+            self._calc_channels["one_period"]["voltage"]["fund_rms"] = DataChannelBuffer('U{:s}_1p_H1_rms'.format(self.name), agg_type='rms', unit="V")
 
         # Create Current Channels
         if self._i_channel:
