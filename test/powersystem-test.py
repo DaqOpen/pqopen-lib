@@ -229,7 +229,25 @@ class TestPowerSystemCalculation(unittest.TestCase):
         self.assertIsNone(np.testing.assert_allclose(u_h_rms[:,3], expected_u_h3_rms, rtol=0.01))
         u_msv_rms, _ = self.power_system.output_channels["U1_msv_rms"].read_data_by_acq_sidx(0, u_values.size)
         self.assertIsNone(np.testing.assert_allclose(u_msv_rms, expected_u_msv_rms, rtol=0.01))
+
+    def test_one_period_calc_trapz_rule(self):
+        t = np.linspace(0, 1, int(self.power_system._samplerate), endpoint=False)
+        u_values = np.sqrt(2)*np.sin(2*np.pi*50.02*t)
         
+        expected_u_rms = np.array(np.zeros(47)) + 1.0
+        expected_freq = np.array(np.zeros(47)) + 50.02
+
+        self.power_system.enable_rms_trapz_rule()
+        self.u_channel.put_data(u_values)
+        self.i_channel.put_data(u_values)
+        self.power_system.process()
+
+        # Check Voltage
+        u_rms, _ = self.power_system.output_channels["U1_1p_rms"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_array_almost_equal(u_rms[1:], expected_u_rms, 4))
+        # Check Frequency
+        freq, _ = self.power_system.output_channels["Freq"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_array_almost_equal(freq[1:], expected_freq, 3))
 
 class TestPowerSystemCalculationThreePhase(unittest.TestCase):
     def setUp(self):

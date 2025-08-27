@@ -88,7 +88,8 @@ class PowerSystem(object):
                           "mains_signaling_tracer": {},
                           "debug_channels": False,
                           "energy_channels": {},
-                          "one_period_fundamental": False}
+                          "one_period_fundamental": 0,
+                          "rms_trapz_rule": False}
         self._prepare_calc_channels()
         self.output_channels: Dict[str, DataChannelBuffer] = {}
         self._last_processed_sidx = 0
@@ -100,6 +101,7 @@ class PowerSystem(object):
         self._last_zc_frac = 0.0
         self._calculation_mode = "NORMAL"
         self._last_known_freq = self.nominal_frequency
+        self._fund_freq_list = np.zeros(1)
         self._channel_update_needed = False
 
 
@@ -214,12 +216,19 @@ class PowerSystem(object):
         self._features["energy_channels"] = {"persist_file": persist_file, "energy_counters": energy_counters}
         self._channel_update_needed = True
 
-    def enable_one_period_fundamental(self):
+    def enable_one_period_fundamental(self, freq_agg_cycles: int = 50):
         """
         Enables the calculation of one (single) period fundamental values
         """
-        self._features["one_period_fundamental"] = True
+        self._features["one_period_fundamental"] = freq_agg_cycles
+        self._fund_freq_list = np.zeros(freq_agg_cycles)
         self._channel_update_needed = True
+
+    def enable_rms_trapz_rule(self):
+        """
+        Enables the trapezoidal integration rule for rms calculation
+        """
+        self._features["rms_trapz_rule"] = True
 
     def _resync_nper_abs_time(self, zc_idx: int):
         if not self._features["nper_abs_time_sync"]:
@@ -320,14 +329,12 @@ class PowerSystem(object):
             self._zero_crossings.append(actual_zc)
             if self._zero_cross_counter <= 1:
                 continue
-            # Calculate Frequency
-            frequency = self._samplerate/(self._zero_crossings[-1] + actual_zc_frac - self._zero_crossings[-2] - self._last_zc_frac)
-            self._last_zc_frac = actual_zc_frac
             # Add actual zero cross counter to debug channel if enabled
             if "pidx" in self._calc_channels["one_period"]['_debug']:
                 self._calc_channels["one_period"]['_debug']['pidx'].put_data_single(self._zero_crossings[-1], self._zero_cross_counter)
             # Process one period calculation, start with second zc
-            self._process_one_period(self._zero_crossings[-2], self._zero_crossings[-1], frequency)
+            self._process_one_period(self._zero_crossings[-2], self._zero_crossings[-1], actual_zc_frac)
+            self._last_zc_frac = actual_zc_frac
             if ((self._zero_cross_counter-1) % self.nper) == 0 and (self._zero_cross_counter > self.nper):
                 # Process multi-period
                 self._process_multi_period(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
@@ -336,14 +343,17 @@ class PowerSystem(object):
         
         self._last_processed_sidx = stop_acq_sidx
 
-    def _process_one_period(self, period_start_sidx: int, period_stop_sidx: int, frequency: float):
+    def _process_one_period(self, period_start_sidx: int, period_stop_sidx: int, actual_zc_frac: float= 0):
         """
         Processes data for a single period, calculating voltage, current, and power.
 
         Parameters:
             period_start_sidx: Start sample index of the period.
             period_stop_sidx: Stop sample index of the period.
+            frequency: Fundamental frequency
         """
+        # Calculate Frequency
+        frequency = self._samplerate/(period_stop_sidx + actual_zc_frac - period_start_sidx - self._last_zc_frac)
         self._calc_channels["one_period"]['power']['freq'].put_data_single(period_stop_sidx, frequency)
         if "sidx" in self._calc_channels["one_period"]['_debug']:
             self._calc_channels["one_period"]['_debug']['sidx'].put_data_single(period_stop_sidx, period_stop_sidx)
@@ -365,7 +375,21 @@ class PowerSystem(object):
                 msv_edge, msv_value = phase._mains_signaling_tracer.process(u_values[::10])
             for phys_type, output_channel in phase._calc_channels["one_period"]["voltage"].items():
                 if phys_type == "trms":
-                    u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
+                    if self._features["rms_trapz_rule"]:
+                        add_start_idx_sample = 1 if self._last_zc_frac < 0 else 0
+                        add_stop_idx_sample = 1 if actual_zc_frac > 0 else 0
+                        u_trapz_values = phase._u_channel.read_data_by_index(phase_period_start_sidx-add_start_idx_sample, phase_period_stop_sidx+add_stop_idx_sample)
+                        sample_points = np.arange(len(u_values), dtype=np.float64)
+                        if add_start_idx_sample:
+                            u_trapz_values[0] = (u_trapz_values[1] - u_trapz_values[0])*(1+self._last_zc_frac) + u_trapz_values[0]
+                            sample_points = np.insert(sample_points,0,self._last_zc_frac)
+                        if add_stop_idx_sample:
+                            u_trapz_values[-1] = (u_trapz_values[-1] - u_trapz_values[-2])*self._last_zc_frac + u_trapz_values[-2]
+                            sample_points = np.insert(sample_points,len(sample_points),sample_points[-1]+actual_zc_frac)
+                        integral = np.trapezoid(np.power(u_trapz_values,2), sample_points)
+                        u_rms = np.sqrt(integral * frequency / self._samplerate)
+                    else:
+                        u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
                     output_channel.put_data_single(phase_period_stop_sidx, u_rms)
                 if phys_type == "msv_bit":
                     if msv_edge is not None:
@@ -376,7 +400,10 @@ class PowerSystem(object):
                     output_channel.put_data_single(phase_period_stop_sidx, np.abs(np.diff(u_values)).max())
                 if phys_type == "fund_rms":
                     # Use sample-discrete frequency, not the exact one for full cycle
-                    fund_amp, fund_phase = calc_single_freq(u_values, self._samplerate/len(u_values), self._samplerate)
+                    self._fund_freq_list = np.roll(self._fund_freq_list,-1)
+                    self._fund_freq_list[-1] = self._samplerate/len(u_values)
+                    mean_freq = self._fund_freq_list[self._fund_freq_list>0].mean()
+                    fund_amp, fund_phase = calc_single_freq(u_values, mean_freq, self._samplerate)
                     output_channel.put_data_single(phase_period_stop_sidx, fund_amp)
             for phys_type, output_channel in phase._calc_channels["half_period"]["voltage"].items():
                 if phys_type == "trms":
@@ -677,7 +704,7 @@ class PowerPhase(object):
             self._calc_channels["one_period"]["voltage"]["msv_mag"] = DataChannelBuffer('U{:s}_1p_msv'.format(self.name), agg_type='max', unit="V")
             self._calc_channels["one_period"]["voltage"]["msv_bit"] = DataChannelBuffer('U{:s}_msv_bit'.format(self.name), unit="")
 
-        if "one_period_fundamental" in features and features["one_period_fundamental"]:
+        if "one_period_fundamental" in features and features["one_period_fundamental"] > 0:
             self._calc_channels["one_period"]["voltage"]["fund_rms"] = DataChannelBuffer('U{:s}_1p_H1_rms'.format(self.name), agg_type='rms', unit="V")
 
         # Create Current Channels
