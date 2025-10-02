@@ -44,7 +44,7 @@ class TestZeroCrossDetector(unittest.TestCase):
         sine_wave = self.generate_sine_wave(freq=freq, duration=duration)
 
         zero_crossings = self.detector.process(sine_wave)
-        self.assertAlmostEqual(self.detector.filter_delay_samples, -5)
+        self.assertAlmostEqual(self.detector.filter_delay_samples, -6)
 
         # Expected zero-crossings: 5 Hz * 1 positive crossing per cycle * 1 second
         expected_crossings = np.arange(start=1, stop=6)*self.samplerate/freq

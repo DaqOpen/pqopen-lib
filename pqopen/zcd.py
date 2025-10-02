@@ -40,8 +40,7 @@ class ZeroCrossDetector:
         self.samplerate = samplerate
 
         # Design a Butterworth low-pass filter
-        normal_cutoff = self.f_cutoff / (0.5 * self.samplerate)
-        self._filter_coeff = signal.iirfilter(2, normal_cutoff, btype='lowpass', ftype='butter')
+        self._filter_coeff = signal.iirfilter(2, self.f_cutoff, btype='lowpass', ftype='butter', fs=self.samplerate)
         self._filter_zi = np.zeros(len(self._filter_coeff[0]) - 1)
 
         self._last_filtered_sample = 0
@@ -51,9 +50,8 @@ class ZeroCrossDetector:
         self._last_zc_n_val = None
 
         # Calculate the filter delay in samples
-        w, h = signal.freqz(self._filter_coeff[0], self._filter_coeff[1],
-                            [2 * np.pi * self.f_cutoff / self.samplerate])
-        self.filter_delay_samples = np.angle(h)[0] / (2 * np.pi) * self.samplerate / self.f_cutoff
+        w, h = signal.freqz(self._filter_coeff[0], self._filter_coeff[1], worN=[self.f_cutoff], fs=self.samplerate)
+        self.filter_delay_samples = np.angle(h)[0] / (2 * np.pi) * self.samplerate / self.f_cutoff - 1 # due to adding sample in front for continuity
         self.filtered_data = []
 
     def process(self, data: np.ndarray)-> list:
