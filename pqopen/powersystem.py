@@ -89,7 +89,8 @@ class PowerSystem(object):
                           "debug_channels": False,
                           "energy_channels": {},
                           "one_period_fundamental": 0,
-                          "rms_trapz_rule": False}
+                          "rms_trapz_rule": False,
+                          "pmu_calculation": False}
         self._prepare_calc_channels()
         self.output_channels: Dict[str, DataChannelBuffer] = {}
         self._last_processed_sidx = 0
@@ -109,7 +110,8 @@ class PowerSystem(object):
         self._calc_channels = {"half_period":      {"voltage": {}, "current": {}, "power": {}, "_debug": {}}, 
                                 "one_period":       {"voltage": {}, "current": {}, "power": {}, "_debug": {}}, 
                                 "one_period_ovlp":  {"voltage": {}, "current": {}, "power": {}, "_debug": {}}, 
-                                "multi_period":     {"voltage": {}, "current": {}, "power": {}, "energy": {}, "_debug": {}}}
+                                "multi_period":     {"voltage": {}, "current": {}, "power": {}, "energy": {}, "_debug": {}},
+                                "pmu":  {"voltage": {}, "current": {}, "power": {}, "_debug": {}}}
 
     def add_phase(self, u_channel: AcqBuffer, i_channel: AcqBuffer = None, name: str = ""):
         """
@@ -230,6 +232,19 @@ class PowerSystem(object):
         """
         self._features["rms_trapz_rule"] = True
 
+    def enable_pmu_calculation(self):
+        """
+        Enables the calculation of equidistant PMU values
+        """
+        if not self._features["nper_abs_time_sync"]:
+            logger.warning("To enable pmu_calculation, nper_abs_time_sync must be enabled first.")
+            return False
+        self._features["pmu_calculation"] = True
+        self._channel_update_needed = True
+        self._pmu_last_processed_sidx = 0
+        self._pmu_last_processed_ts_us = 0
+        self._pmu_time_increment_us = int(1_000_000 / self.nominal_frequency)
+
     def _resync_nper_abs_time(self, zc_idx: int):
         if not self._features["nper_abs_time_sync"]:
             return None
@@ -278,6 +293,8 @@ class PowerSystem(object):
                 self._calc_channels["multi_period"]["energy"]["w_pos"].last_sample_value = self._features["energy_channels"]["energy_counters"].get("W_pos", 0.0)
                 self._calc_channels["multi_period"]["energy"]["w_neg"] = DataChannelBuffer('W_neg', agg_type='max', unit="Wh", dtype=np.float64)
                 self._calc_channels["multi_period"]["energy"]["w_neg"].last_sample_value = self._features["energy_channels"]["energy_counters"].get("W_neg", 0.0)
+            if self._features["pmu_calculation"]:
+                self._calc_channels["pmu"]["power"]["freq"] = DataChannelBuffer('Freq_pmu', agg_type='mean', unit="Hz")
 
             for agg_interval, phys_types in self._calc_channels.items():
                 for phys_type, calc_type in phys_types.items():
@@ -340,6 +357,9 @@ class PowerSystem(object):
                 self._process_multi_period(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
                 self._resync_nper_abs_time(-1)
                 self._process_fluctuation_calc(self._zero_crossings[-self.nper - 1], self._zero_crossings[-1])
+
+        # Process fixed-time (PMU) channels
+        self._process_pmu_calc(self._zero_crossings[-1])
         
         self._last_processed_sidx = stop_acq_sidx
 
@@ -373,6 +393,13 @@ class PowerSystem(object):
             u_values = phase._u_channel.read_data_by_index(phase_period_start_sidx, phase_period_stop_sidx)
             if self._features["mains_signaling_tracer"]:
                 msv_edge, msv_value = phase._mains_signaling_tracer.process(u_values[::10])
+            if self._features["one_period_fundamental"]:
+                # Use sample-discrete frequency, not the exact one for full cycle
+                u_values_sync = phase._u_channel.read_data_by_index(period_start_sidx, period_stop_sidx)
+                self._fund_freq_list = np.roll(self._fund_freq_list,-1)
+                self._fund_freq_list[-1] = self._samplerate/len(u_values_sync)
+                mean_freq = self._fund_freq_list[self._fund_freq_list>0].mean()
+                fund_amp, fund_phase = calc_single_freq(u_values_sync, mean_freq, self._samplerate)
             for phys_type, output_channel in phase._calc_channels["one_period"]["voltage"].items():
                 if phys_type == "trms":
                     if self._features["rms_trapz_rule"]:
@@ -399,12 +426,10 @@ class PowerSystem(object):
                 if phys_type == "slope":
                     output_channel.put_data_single(phase_period_stop_sidx, np.abs(np.diff(u_values)).max())
                 if phys_type == "fund_rms":
-                    # Use sample-discrete frequency, not the exact one for full cycle
-                    self._fund_freq_list = np.roll(self._fund_freq_list,-1)
-                    self._fund_freq_list[-1] = self._samplerate/len(u_values)
-                    mean_freq = self._fund_freq_list[self._fund_freq_list>0].mean()
-                    fund_amp, fund_phase = calc_single_freq(u_values, mean_freq, self._samplerate)
-                    output_channel.put_data_single(phase_period_stop_sidx, fund_amp)
+                    output_channel.put_data_single(period_stop_sidx, fund_amp)
+                if phys_type == "fund_phi":
+                    output_channel.put_data_single(period_stop_sidx, pq.normalize_phi(np.rad2deg(fund_phase+np.pi/2)))
+
             for phys_type, output_channel in phase._calc_channels["half_period"]["voltage"].items():
                 if phys_type == "trms":
                     # First half period
@@ -571,6 +596,52 @@ class PowerSystem(object):
             self._pst_last_calc_sidx = stop_sidx
             self._pst_next_round_ts = floor_timestamp(stop_ts, self._pst_interval_sec, ts_resolution="us")+self._pst_interval_sec*1_000_000
 
+    def _process_pmu_calc(self, stop_sidx: int):
+        """
+        Process data to calculate PMU (Phasor Measurement Unit) parameters.
+
+        Parameters:
+            stop_sidx: Stop sample index for calculation
+
+        Returns:
+            None
+        """
+        if not self._features["pmu_calculation"]:
+            return None
+        # Read timestamps
+        start_sidx = int(self._pmu_last_processed_sidx - 1.5*self._samplerate / self.nominal_frequency)
+        start_sidx = max(0, start_sidx)
+        ts_us = self._time_channel.read_data_by_index(start_sidx, stop_sidx)
+        first_pmu_ts = (self._pmu_last_processed_ts_us + self._pmu_time_increment_us) if self._pmu_last_processed_ts_us > 0 else ts_us[0] - ts_us[0] % self._pmu_time_increment_us + self._pmu_time_increment_us
+        last_pmu_ts = ts_us[-1] - (ts_us[-1] % self._pmu_time_increment_us) - self._pmu_time_increment_us # convert until n-1
+        logger.debug(f"first_pmu_ts: {first_pmu_ts:d}, last_pmu_ts: {last_pmu_ts:d}, self._pmu_time_increment_us: {self._pmu_time_increment_us:d}")
+        wanted_pmu_ts = np.arange(first_pmu_ts, last_pmu_ts+1, self._pmu_time_increment_us, dtype=np.int64)
+        wanted_pmu_sidx = [int(np.searchsorted(ts_us, pmu_ts)+start_sidx) for pmu_ts in wanted_pmu_ts]
+        wanted_pmu_ts_map = dict(zip(wanted_pmu_sidx, wanted_pmu_ts))
+        real_pmu_ts_map = {pmu_sidx: int(ts_us[pmu_sidx - start_sidx]) for pmu_sidx in wanted_pmu_sidx}
+        ovlp_window_start = max(0, int(wanted_pmu_sidx[0] - 1.5*self._samplerate / self.nominal_frequency))
+        freq, sample_indices = self._calc_channels["one_period"]["power"]["freq"].read_data_by_acq_sidx(ovlp_window_start, stop_sidx)
+
+        if len(sample_indices) == 0:
+            return None
+        for phase in self._phases:
+            u_raw = phase._u_channel.read_data_by_index(ovlp_window_start, stop_sidx)
+            for pmu_sidx in wanted_pmu_sidx:
+                # Search for previous zc
+                zc_idx = np.searchsorted(sample_indices, pmu_sidx,side="left")
+                if zc_idx == len(sample_indices):
+                    zc_idx -= 1
+                local_stop_idx = max(0, pmu_sidx - ovlp_window_start)
+                local_start_idx = max(0, local_stop_idx - int(np.round(self._samplerate/freq[zc_idx])))
+                fund_amp, fund_phase = calc_single_freq(u_raw[local_start_idx:local_stop_idx], freq[zc_idx], self._samplerate)
+                frac_sidx_phi_offset = (wanted_pmu_ts_map[pmu_sidx] - real_pmu_ts_map[pmu_sidx])/1e6*2*np.pi*freq[zc_idx]
+                phase._calc_channels["pmu"]["voltage"]["rms"].put_data_single(pmu_sidx, fund_amp)
+                phase._calc_channels["pmu"]["voltage"]["phi"].put_data_single(pmu_sidx, pq.normalize_phi(np.rad2deg(fund_phase+np.pi/2+frac_sidx_phi_offset)))
+                # TODO: Add Frequency PMU Channel as well??
+                # TODO: Add current channels?
+        self._pmu_last_processed_sidx = stop_sidx
+        self._pmu_last_processed_ts_us = last_pmu_ts
+
     def _detect_zero_crossings(self, start_acq_sidx: int, stop_acq_sidx: int) -> List[float]:
         """
         Detects zero crossings in the signal.
@@ -671,12 +742,13 @@ class PowerPhase(object):
         Parameters:
             features: Dict of features
         """
-        self._calc_channels = {"half_period": {}, "one_period": {}, "one_period_ovlp": {}, "multi_period": {}}
+        self._calc_channels = {"half_period": {}, "one_period": {}, "one_period_ovlp": {}, "multi_period": {}, "pmu": {}}
         # Create Voltage Channels
         self._calc_channels["half_period"]["voltage"] = {}
         self._calc_channels["one_period"]["voltage"] = {}
         self._calc_channels["one_period_ovlp"]["voltage"] = {}
         self._calc_channels["multi_period"]["voltage"] = {}
+        self._calc_channels["pmu"]["voltage"] = {}
         self._calc_channels["half_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_hp_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period"]["voltage"]["trms"] = DataChannelBuffer('U{:s}_1p_rms'.format(self.name), agg_type='rms', unit="V")
         self._calc_channels["one_period"]["voltage"]["slope"] = DataChannelBuffer('U{:s}_1p_slope'.format(self.name), agg_type='max', unit="V/s")
@@ -706,6 +778,11 @@ class PowerPhase(object):
 
         if "one_period_fundamental" in features and features["one_period_fundamental"] > 0:
             self._calc_channels["one_period"]["voltage"]["fund_rms"] = DataChannelBuffer('U{:s}_1p_H1_rms'.format(self.name), agg_type='rms', unit="V")
+            self._calc_channels["one_period"]["voltage"]["fund_phi"] = DataChannelBuffer('U{:s}_1p_H1_phi'.format(self.name), agg_type='phi', unit="°")
+
+        if "pmu_calculation" in features and features["pmu_calculation"]:
+            self._calc_channels["pmu"]["voltage"]["rms"] = DataChannelBuffer('U{:s}_pmu_rms'.format(self.name), agg_type='rms', unit="V")
+            self._calc_channels["pmu"]["voltage"]["phi"] = DataChannelBuffer('U{:s}_pmu_phi'.format(self.name), agg_type='phi', unit="°")
 
         # Create Current Channels
         if self._i_channel:
@@ -713,6 +790,7 @@ class PowerPhase(object):
             self._calc_channels["multi_period"]["current"] = {}
             self._calc_channels["one_period"]["current"]["trms"] = DataChannelBuffer('I{:s}_1p_rms'.format(self.name), agg_type='rms', unit="A")
             self._calc_channels["multi_period"]["current"]["trms"] = DataChannelBuffer('I{:s}_rms'.format(self.name), agg_type='rms', unit="A")
+            self._calc_channels["pmu"]["current"] = {}
             self._calc_channels["one_period"]["power"] = {}
             self._calc_channels["multi_period"]["power"] = {}
 
@@ -724,6 +802,10 @@ class PowerPhase(object):
                 self._calc_channels["multi_period"]["current"]["thd"] = DataChannelBuffer('I{:s}_THD'.format(self.name), unit="%")
                 self._calc_channels["multi_period"]["power"]['p_fund_mag'] = DataChannelBuffer('P{:s}_H1'.format(self.name), agg_type='mean', unit="W")
                 self._calc_channels["multi_period"]["power"]['q_fund_mag'] = DataChannelBuffer('Q{:s}_H1'.format(self.name), agg_type='mean', unit="var")
+
+            if "pmu_calculation" in features and features["pmu_calculation"]:
+                self._calc_channels["pmu"]["current"]["rms"] = DataChannelBuffer('I{:s}_pmu_rms'.format(self.name), agg_type='rms', unit="A")
+                self._calc_channels["pmu"]["current"]["phi"] = DataChannelBuffer('I{:s}_pmu_phi'.format(self.name), agg_type='phi', unit="°")
 
             # Create Power Channels
             self._calc_channels["one_period"]["power"]['p_avg'] = DataChannelBuffer('P{:s}_1p'.format(self.name), agg_type='mean', unit="W")

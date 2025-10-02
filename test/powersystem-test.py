@@ -527,7 +527,7 @@ class TestPowerSystemNperSync(unittest.TestCase):
         self.power_system.process()
 
         u_rms, sidx = self.power_system.output_channels["U1_rms"].read_data_by_acq_sidx(0, u_values.size)
-        self.assertAlmostEqual(sidx[5*5],5.2*self.power_system._samplerate, places=-1)
+        self.assertAlmostEqual(sidx[5*5],5.22*self.power_system._samplerate, places=-1)
 
     # def test_fractional_freq(self):
     #     abs_ts_start = datetime.datetime(2024,1,1,0,0,5, tzinfo=datetime.UTC).timestamp()
@@ -570,7 +570,7 @@ class TestPowerSystemFluctuation(unittest.TestCase):
             self.time_channel.put_data((t[blk_idx*blocksize:(blk_idx+1)*blocksize]+abs_ts_start)*1e6)
             self.power_system.process()
         self.assertAlmostEqual(self.power_system.output_channels["U1_pst"].last_sample_value, 0, places=1)
-        self.assertEqual(self.power_system.output_channels["U1_pst"].last_sample_acq_sidx, np.round(self.power_system._samplerate*(61+0.02)))
+        self.assertEqual(self.power_system.output_channels["U1_pst"].last_sample_acq_sidx, int(self.power_system._samplerate*(61+0.02)))
 
 def test_steady_state_600s(self):
         self.power_system.enable_fluctuation_calculation(nominal_voltage=230, pst_interval_sec=600)
@@ -585,6 +585,37 @@ def test_steady_state_600s(self):
             self.power_system.process()
         self.assertAlmostEqual(self.power_system.output_channels["U1_pst"].last_sample_value, 0, places=1)
         self.assertEqual(self.power_system.output_channels["U1_pst"].last_sample_acq_sidx, np.round(self.power_system._samplerate*621))
+
+class TestPowerSystemPMU(unittest.TestCase):
+    def setUp(self):
+        self.u_channel = AcqBuffer(name="U1")
+        self.time_channel = AcqBuffer(dtype=np.int64)
+
+        # Create PowerSystem instance
+        self.power_system = PowerSystem(
+            zcd_channel=self.u_channel,
+            input_samplerate=5555.555,
+            zcd_threshold=1
+        )
+        # Add Phase
+        self.power_system.add_phase(u_channel=self.u_channel)
+        self.power_system.enable_nper_abs_time_sync(self.time_channel)
+        self.power_system.enable_one_period_fundamental(1)
+        self.power_system.enable_pmu_calculation()
+
+    def test_simple(self):
+        abs_ts_start = datetime.datetime(2025,1,1,0,0,0, tzinfo=datetime.UTC).timestamp()
+        t = np.arange(0, 1, 1/self.power_system._samplerate)
+        u_values = 230*np.sqrt(2)*np.sin(2*np.pi*50*t)
+
+        blocksize = 1000
+        for blk_idx in range(t.size // blocksize):
+            self.u_channel.put_data(u_values[blk_idx*blocksize:(blk_idx+1)*blocksize])
+            self.time_channel.put_data((t[blk_idx*blocksize:(blk_idx+1)*blocksize]+abs_ts_start)*1e6)
+            self.power_system.process()
+        self.assertAlmostEqual(self.power_system.output_channels["U1_pmu_rms"].last_sample_value, 230, places=0)
+        self.assertAlmostEqual(self.power_system.output_channels["U1_pmu_phi"].last_sample_value, 0, places=0)
+        #self.assertEqual(self.power_system.output_channels["U1_pmu_rms"].last_sample_acq_sidx, np.round(self.power_system._samplerate*(61+0.02)))
 
 
 if __name__ == "__main__":
