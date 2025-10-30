@@ -672,13 +672,8 @@ class PowerSystem(object):
                 self._calculation_mode = "FALLBACK"
         else:
             self._calculation_mode = "NORMAL"
-        
-        # Remove Non monotonic rising zero crossings
-        filtered_zero_crossings = []
-        for idx,zc in enumerate(zero_crossings):
-            if (int(zc)+start_acq_sidx) >= self._zero_crossings[-1] or np.isnan(self._zero_crossings[-1]):
-                filtered_zero_crossings.append(zc)
-        return filtered_zero_crossings
+
+        return zero_crossings
 
     def get_aggregated_data(self, start_acq_sidx: int, stop_acq_sidx: int) -> dict:
         """

@@ -48,6 +48,7 @@ class ZeroCrossDetector:
         self._last_zc_p = None
         self._last_zc_n = None
         self._last_zc_n_val = None
+        self._last_zc = None
 
         # Calculate the filter delay in samples
         w, h = signal.freqz(self._filter_coeff[0], self._filter_coeff[1], worN=[self.f_cutoff], fs=self.samplerate)
@@ -111,9 +112,15 @@ class ZeroCrossDetector:
             k = (y2 - y1) / (x2 - x1)
             d = y1 - k * x1
             real_zc = -d/k
-            #real_zc = (threshold_p_cross[p_idx] - threshold_n_cross[n_idx] + 1) / 2 + threshold_n_cross[n_idx]
-            zero_crossings.append(real_zc + self.filter_delay_samples)
-            last_used_p_idx = p_idx
+            if np.isnan(real_zc):
+                logger.warning("Detection Error: real_zc is NaN, ignoring")
+            else:
+                if self._last_zc  and (real_zc <= self._last_zc):
+                    logger.warning("Detected ZC before last one, ignoring")
+                else:    
+                    zero_crossings.append(real_zc + self.filter_delay_samples)
+                    last_used_p_idx = p_idx
+                    self._last_zc = real_zc
 
         # Update the last negative threshold-crossing for the next block
         if last_used_p_idx < len(threshold_p_cross) and len(threshold_n_cross) > 0:
@@ -125,5 +132,9 @@ class ZeroCrossDetector:
                 self._last_zc_n_val = filtered_data[threshold_n_cross[-1]]
         else:
             self._last_zc_n = None
+
+        # Update Last Valid ZC Index
+        if self._last_zc:
+            self._last_zc -= len(data)
 
         return zero_crossings
