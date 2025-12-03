@@ -29,7 +29,7 @@ from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
 from pqopen.zcd import ZeroCrossDetector
 import pqopen.powerquality as pq
 from pqopen.helper import floor_timestamp
-from pqopen.goertzel import calc_single_freq 
+from pqopen.auxcalc import calc_single_freq, calc_rms_trapz
 logger = logging.getLogger(__name__)
 
 class PowerSystem(object):
@@ -403,18 +403,8 @@ class PowerSystem(object):
             for phys_type, output_channel in phase._calc_channels["one_period"]["voltage"].items():
                 if phys_type == "trms":
                     if self._features["rms_trapz_rule"]:
-                        add_start_idx_sample = 1 if self._last_zc_frac < 0 else 0
-                        add_stop_idx_sample = 1 if actual_zc_frac > 0 else 0
-                        u_trapz_values = phase._u_channel.read_data_by_index(phase_period_start_sidx-add_start_idx_sample, phase_period_stop_sidx+add_stop_idx_sample)
-                        sample_points = np.arange(len(u_values), dtype=np.float64)
-                        if add_start_idx_sample:
-                            u_trapz_values[0] = (u_trapz_values[1] - u_trapz_values[0])*(1+self._last_zc_frac) + u_trapz_values[0]
-                            sample_points = np.insert(sample_points,0,self._last_zc_frac)
-                        if add_stop_idx_sample:
-                            u_trapz_values[-1] = (u_trapz_values[-1] - u_trapz_values[-2])*self._last_zc_frac + u_trapz_values[-2]
-                            sample_points = np.insert(sample_points,len(sample_points),sample_points[-1]+actual_zc_frac)
-                        integral = np.trapezoid(np.power(u_trapz_values,2), sample_points)
-                        u_rms = np.sqrt(integral * frequency / self._samplerate)
+                        u_trapz_values = phase._u_channel.read_data_by_index(phase_period_start_sidx-1, phase_period_stop_sidx+1)
+                        u_rms = calc_rms_trapz(u_trapz_values, self._last_zc_frac, actual_zc_frac, frequency, self._samplerate)     
                     else:
                         u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
                     output_channel.put_data_single(phase_period_stop_sidx, u_rms)

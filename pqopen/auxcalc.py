@@ -9,7 +9,7 @@ except ImportError:
         return func
     float32 = float64 = None
 
-@njit
+@njit(cache=True)
 def calc_single_freq(x: np.array, f_hz: float, fs: float) -> tuple[float, float]:
     """Compute the amplitude and phase of a specific frequency component
     in a signal using the Goertzel algorithm.
@@ -47,6 +47,14 @@ def calc_single_freq(x: np.array, f_hz: float, fs: float) -> tuple[float, float]
     phase = np.arctan2(qp, ip)
 
     return amp, phase
+
+def calc_rms_trapz(values: np.array, start_frac: float, end_frac: float, frequency: float, samplerate: float):
+    u2 = values * values
+    s = 0.0
+    s += 0.5 * (u2[0] + u2[1]) * start_frac # left edge
+    s += 0.5*u2[1:-2].sum() + 0.5*u2[2:-1].sum() # middle
+    s += 0.5 * (u2[-2] + u2[-1]) * end_frac # right edge
+    return (s * frequency / samplerate) ** 0.5
 
 # >>>>>>> Pre-Compile for float32 und float64 <<<<<<<
 if float32 is not None and float64 is not None:

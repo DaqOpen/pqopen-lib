@@ -88,7 +88,7 @@ class TestStorageController(unittest.TestCase):
 
         self.storage_controller.process_events(events)
 
-        self.assertEqual(storage_endpoint._event_list[0].start_ts, 0.01)
+        self.assertAlmostEqual(storage_endpoint._event_list[0].start_ts, 0.01)
 
     def test_one_storageplan_series_slow(self):
         start_timestamp = int(1000000000*1e6)

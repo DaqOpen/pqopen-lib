@@ -6,7 +6,7 @@ import numpy as np
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
-from pqopen.goertzel import calc_single_freq 
+from pqopen.auxcalc import calc_single_freq 
 
 class TestSingleFrequency(unittest.TestCase):
     def test_fund_only(self):
