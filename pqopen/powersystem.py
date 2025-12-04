@@ -28,7 +28,7 @@ import json
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
 from pqopen.zcd import ZeroCrossDetector
 import pqopen.powerquality as pq
-from pqopen.helper import floor_timestamp
+from pqopen.helper import floor_timestamp, create_fft_corr_array
 from pqopen.auxcalc import calc_single_freq, calc_rms_trapz
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,7 @@ class PowerSystem(object):
         self._zcd_minimum_frequency = zcd_minimum_freq
         self.nominal_frequency = nominal_frequency
         self.nper = nper
+        self._harm_fft_resample_size = 2**int(np.floor(np.log2((self._samplerate / self.nominal_frequency) * self.nper)))
         self._nominal_voltage = None
         self._phases: List[PowerPhase] = []
         self._features = {"harmonics": 0, 
@@ -301,6 +302,17 @@ class PowerSystem(object):
                     tmp = {channel.name: channel for channel in calc_type.values()}
                     self.output_channels.update(tmp)
 
+            if self._features["harmonics"]:
+                for phase in self._phases:
+                    if phase._u_channel.freq_response:
+                        phase._u_fft_corr_array = create_fft_corr_array(self._harm_fft_resample_size//2+1,
+                                                                        self._samplerate/2,
+                                                                        phase._u_channel.freq_response)
+                    if phase._i_channel is not None and phase._i_channel.freq_response:
+                        phase._i_fft_corr_array = create_fft_corr_array(self._harm_fft_resample_size//2+1,
+                                                                        self._samplerate/2,
+                                                                        phase._i_channel.freq_response)
+            
             if self._features["fluctuation"]:
                 for phase in self._phases:
                     phase._voltage_fluctuation_processor = pq.VoltageFluctuation(samplerate=self._samplerate,
@@ -467,7 +479,9 @@ class PowerSystem(object):
             u_values = phase._u_channel.read_data_by_index(start_sidx, stop_sidx)
             u_rms = np.sqrt(np.mean(np.power(u_values, 2)))
             if self._features["harmonics"]:
-                data_fft_U = pq.resample_and_fft(u_values)
+                data_fft_U = pq.resample_and_fft(u_values, self._harm_fft_resample_size)
+                if phase._u_fft_corr_array is not None:
+                    data_fft_U *= phase._u_fft_corr_array
                 u_h_mag, u_h_phi = pq.calc_harmonics(data_fft_U, self.nper, self._features["harmonics"])
                 u_ih_mag = pq.calc_interharmonics(data_fft_U, self.nper, self._features["harmonics"])
                 if phase._number == 1: # use phase 1 angle as reference
@@ -719,6 +733,8 @@ class PowerPhase(object):
         self._calc_channels = {}
         self._voltage_fluctuation_processor: pq.VoltageFluctuation = None
         self._mains_signaling_tracer: pq.MainsSignalingVoltageTracer = None
+        self._u_fft_corr_array = None
+        self._i_fft_corr_array = None
 
     def update_calc_channels(self, features: dict):
         """

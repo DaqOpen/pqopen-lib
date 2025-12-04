@@ -1,12 +1,13 @@
 import unittest
 import sys
 import os
+import numpy as np
 from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
-from pqopen.helper import floor_timestamp, JsonDecimalLimiter
+from pqopen.helper import floor_timestamp, JsonDecimalLimiter, create_harm_corr_array, create_fft_corr_array
 
 class TestFloorTimestamp(unittest.TestCase):
 
@@ -99,6 +100,32 @@ class TestLimitDecimalPlaces(unittest.TestCase):
         float_limiter = JsonDecimalLimiter()
         input_json = '{"sci": 1.23e10}'
         self.assertEqual(float_limiter.process(input_json), input_json)
+
+class TestHarmCorrCreater(unittest.TestCase):
+
+    def test_harmonic(self):
+        freq_response = ((50, 1.0), (100, 0.9))
+        expected_corr_factors = 1/np.array([1, 1, 0.9, 0.9, 0.9, 0.9])
+        corr_factors = create_harm_corr_array(50, 5, freq_response)
+
+        self.assertIsNone(np.testing.assert_array_almost_equal(corr_factors, expected_corr_factors))
+
+    def test_interharmonic(self):
+        freq_response = ((50, 1.0), (100, 0.9))
+        expected_corr_factors = 1/np.array([1, 0.95, 0.9, 0.9, 0.9, 0.9])
+        corr_factors = create_harm_corr_array(50, 5, freq_response, interharm=True)
+
+        self.assertIsNone(np.testing.assert_array_almost_equal(corr_factors, expected_corr_factors))
+
+class TestFftCorrCreater(unittest.TestCase):
+
+    def test_small(self):
+        freq_response = ((50, 1.0), (100, 0.9))
+
+        expected_corr_factors = 1/np.array([1, 1, 0.9, 0.9, 0.9, 0.9])
+        corr_factors = create_fft_corr_array(6, 250, freq_response)
+
+        self.assertIsNone(np.testing.assert_array_almost_equal(corr_factors, expected_corr_factors))
 
 if __name__ == '__main__':
     unittest.main()

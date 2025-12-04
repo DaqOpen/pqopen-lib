@@ -249,6 +249,40 @@ class TestPowerSystemCalculation(unittest.TestCase):
         freq, _ = self.power_system.output_channels["Freq"].read_data_by_acq_sidx(0, u_values.size)
         self.assertIsNone(np.testing.assert_array_almost_equal(freq[1:], expected_freq, 3))
 
+class TestPowerSystemCalculationFreqResponse(unittest.TestCase):
+    def setUp(self):
+        self.u_channel = AcqBuffer(freq_response=((50,1.0), (100,0.9)))
+        self.i_channel = AcqBuffer()
+
+        # Create PowerSystem instance
+        self.power_system = PowerSystem(
+            zcd_channel=self.u_channel,
+            input_samplerate=10000.0,
+            zcd_threshold=0.1
+        )
+        # Add Phase
+        self.power_system.add_phase(u_channel=self.u_channel, i_channel=self.i_channel)
+
+    def test_multi_period_calc_harmonic_msv(self):
+        t = np.linspace(0, 1, int(self.power_system._samplerate), endpoint=False)
+        u_values = np.sqrt(2)*np.sin(2*np.pi*50*t) + 0.09*np.sqrt(2)*np.sin(2*np.pi*150*t) + 0.009*np.sqrt(2)*np.sin(2*np.pi*375*t)
+        i_values = 2*np.sqrt(2)*np.sin(2*np.pi*50*t+60*np.pi/180) # cos_phi = 0.5
+
+        expected_u_h3_rms = np.array(np.zeros(4)) + 0.1
+        expected_u_msv_rms = np.array(np.zeros(4)) + 0.01
+
+        self.power_system.enable_harmonic_calculation(10)
+        self.power_system.enable_mains_signaling_calculation(375)
+        self.u_channel.put_data(u_values)
+        self.i_channel.put_data(i_values)
+        self.power_system.process()
+
+        # Check Voltage        
+        u_h_rms, _ = self.power_system.output_channels["U1_H_rms"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_allclose(u_h_rms[:,3], expected_u_h3_rms, rtol=0.01))
+        u_msv_rms, _ = self.power_system.output_channels["U1_msv_rms"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_allclose(u_msv_rms, expected_u_msv_rms, rtol=0.01))
+
 class TestPowerSystemCalculationThreePhase(unittest.TestCase):
     def setUp(self):
         self.u1_channel = AcqBuffer()

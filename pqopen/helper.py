@@ -1,5 +1,6 @@
 from datetime import datetime
 import re
+import numpy as np
 
 def floor_timestamp(timestamp: float | int, interval_seconds: int, ts_resolution: str = "us"):
     """Floor eines Zeitstempels auf ein gegebenes Intervall."""
@@ -45,3 +46,18 @@ class JsonDecimalLimiter(object):
     
     def _round_float_match(self, m):
         return format(round(float(m.group()), self._decimal_places), f'.{self._decimal_places}f')
+    
+def create_harm_corr_array(nom_frequency: float, num_harmonics: int, freq_response: tuple, interharm=False):
+    if interharm:
+        freqs = np.arange(0.5*nom_frequency, nom_frequency*(num_harmonics+1.5), nom_frequency)
+    else:
+        freqs = np.arange(0, nom_frequency*(num_harmonics+1), nom_frequency)
+    freq_response_arr = np.array(freq_response)
+    freq_corr = 1/np.interp(freqs, freq_response_arr[:,0], freq_response_arr[:,1])
+    return freq_corr
+
+def create_fft_corr_array(target_size: int, freq_nyq: float, freq_response: tuple):
+    freqs = np.linspace(0, freq_nyq, target_size)
+    freq_response_arr = np.array(freq_response)
+    freq_corr = 1/np.interp(freqs, freq_response_arr[:,0], freq_response_arr[:,1])
+    return freq_corr
