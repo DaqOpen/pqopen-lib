@@ -305,11 +305,11 @@ class PowerSystem(object):
             if self._features["harmonics"]:
                 for phase in self._phases:
                     if phase._u_channel.freq_response:
-                        phase._u_fft_corr_array = create_fft_corr_array(self._harm_fft_resample_size//2+1,
+                        phase._u_fft_corr_array = create_fft_corr_array(self._harm_fft_resample_size,
                                                                         self._samplerate/2,
                                                                         phase._u_channel.freq_response)
                     if phase._i_channel is not None and phase._i_channel.freq_response:
-                        phase._i_fft_corr_array = create_fft_corr_array(self._harm_fft_resample_size//2+1,
+                        phase._i_fft_corr_array = create_fft_corr_array(self._harm_fft_resample_size,
                                                                         self._samplerate/2,
                                                                         phase._i_channel.freq_response)
             
@@ -481,7 +481,8 @@ class PowerSystem(object):
             if self._features["harmonics"]:
                 data_fft_U = pq.resample_and_fft(u_values, self._harm_fft_resample_size)
                 if phase._u_fft_corr_array is not None:
-                    data_fft_U *= phase._u_fft_corr_array
+                    resample_factor =  min(self._harm_fft_resample_size / u_values.size, 1)
+                    data_fft_U *= phase._u_fft_corr_array[np.linspace(0, self._harm_fft_resample_size*resample_factor, self._harm_fft_resample_size//2+1).astype(np.int32)]
                 u_h_mag, u_h_phi = pq.calc_harmonics(data_fft_U, self.nper, self._features["harmonics"])
                 u_ih_mag = pq.calc_interharmonics(data_fft_U, self.nper, self._features["harmonics"])
                 if phase._number == 1: # use phase 1 angle as reference
