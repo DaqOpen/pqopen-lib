@@ -69,7 +69,7 @@ class TestPowerPowerQualityFlicker(unittest.TestCase):
 
         blocksize = 1000
         for blk_idx in range(t.size // blocksize):
-            hp_data = 230*np.ones(samplerate//blocksize*f_fund*2)
+            hp_data = 230*np.ones((f_fund*2*blocksize)//samplerate)
             voltage_fluctuation.process(blk_idx*blocksize, hp_data, u_values[blk_idx*blocksize:(blk_idx+1)*blocksize])
         pst = voltage_fluctuation.calc_pst(0, duration*samplerate)
 
@@ -90,7 +90,7 @@ class TestPowerPowerQualityFlicker(unittest.TestCase):
 
         blocksize = 1000
         for blk_idx in range(t.size // blocksize):
-            hp_data = 230*np.ones(samplerate//blocksize*f_fund*2)
+            hp_data = 230*np.ones((f_fund*2*blocksize)//samplerate)
             voltage_fluctuation.process(blk_idx*blocksize, hp_data, u_values[blk_idx*blocksize:(blk_idx+1)*blocksize])
         pinst_1s, _ = voltage_fluctuation._pinst_channel.read_data_by_acq_sidx((duration-1)*samplerate, duration*samplerate)
 

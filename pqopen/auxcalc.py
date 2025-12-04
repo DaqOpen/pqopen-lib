@@ -56,6 +56,21 @@ def calc_rms_trapz(values: np.array, start_frac: float, end_frac: float, frequen
     s += 0.5 * (u2[-2] + u2[-1]) * end_frac # right edge
     return (s * frequency / samplerate) ** 0.5
 
+@njit(fastmath=True)
+def fast_interp(y, out_len):
+    n = y.size
+    scale = (n - 1) / out_len
+    out = np.empty(out_len, dtype=y.dtype)
+    for i in range(out_len):
+        x = i * scale
+        j = int(x)
+        t = x - j
+        if j+1 < n:
+            out[i] = (1-t)*y[j] + t*y[j+1]
+        else:
+            out[i] = y[-1]
+    return out
+
 # >>>>>>> Pre-Compile for float32 und float64 <<<<<<<
 if float32 is not None and float64 is not None:
     sigs = [

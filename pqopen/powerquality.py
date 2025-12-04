@@ -76,7 +76,7 @@ def resample_and_fft(data: np.ndarray, resample_size: int = None) -> np.ndarray:
         np.ndarray: The FFT of the resampled data, scaled by sqrt(2) and normalized by the resample size.
     """
     if not resample_size:
-        resample_size = 2**int(np.ceil(np.log2(data.size)))
+        resample_size = 2**int(np.floor(np.log2(data.size)))
     x_data = np.arange(len(data))
     x = np.linspace(0, len(data), resample_size, endpoint=False)
     data_resampled = np.interp(x, x_data, data)
@@ -149,11 +149,7 @@ class VoltageFluctuation(object):
     def process(self, start_sidx: int, hp_data: np.ndarray, raw_data: np.ndarray):
         """
         """
-        stage0_tp_filtered_data,_ = signal.lfilter(self.stage0_tp_filter_coeff[0], self.stage0_tp_filter_coeff[1], raw_data, zi=self.stage0_tp_filter_zi)
-        self.stage0_tp_filter_zi = signal.lfiltic(self.stage0_tp_filter_coeff[0], 
-                                                  self.stage0_tp_filter_coeff[1], 
-                                                  stage0_tp_filtered_data[-3:][::-1],
-                                                  raw_data[-3:][::-1])
+        stage0_tp_filtered_data, self.stage0_tp_filter_zi = signal.lfilter(self.stage0_tp_filter_coeff[0], self.stage0_tp_filter_coeff[1], raw_data, zi=self.stage0_tp_filter_zi)
         
         samples_skip_next_start = len(stage0_tp_filtered_data) % self._calc_samplerate_decimation
         stage0_tp_filtered_data = stage0_tp_filtered_data[self._next_reduction_start_idx::self._calc_samplerate_decimation]
@@ -161,37 +157,17 @@ class VoltageFluctuation(object):
             self._next_reduction_start_idx += self._calc_samplerate_decimation - samples_skip_next_start
             if self._next_reduction_start_idx >= self._calc_samplerate_decimation:
                 self._next_reduction_start_idx %= self._calc_samplerate_decimation
-        stage1_tp_filtered_data,_ = signal.lfilter(self.stage1_tp_filter_coeff[0], self.stage1_tp_filter_coeff[1], hp_data, zi=self.stage1_tp_filter_zi)
-        self.stage1_tp_filter_zi = signal.lfiltic(self.stage1_tp_filter_coeff[0], 
-                                                  self.stage1_tp_filter_coeff[1], 
-                                                  stage1_tp_filtered_data[-2:][::-1],
-                                                  hp_data[-2:][::-1])
+        stage1_tp_filtered_data, self.stage1_tp_filter_zi = signal.lfilter(self.stage1_tp_filter_coeff[0], self.stage1_tp_filter_coeff[1], hp_data, zi=self.stage1_tp_filter_zi)
         blk_size = int(len(stage0_tp_filtered_data)/len(hp_data))
         for idx,val in enumerate(stage1_tp_filtered_data[:-1]):
             stage0_tp_filtered_data[idx*blk_size:(idx+1)*blk_size] /= val
         stage0_tp_filtered_data[(idx+1)*blk_size:] /= stage1_tp_filtered_data[-1]
         stage2_output = np.power(stage0_tp_filtered_data, 2)
-        stage3_hp_filtered_data,_ = signal.lfilter(self.stage3_hp_filter_coeff[0], self.stage3_hp_filter_coeff[1], stage2_output, zi=self.stage3_hp_filter_zi)
-        self.stage3_hp_filter_zi = signal.lfiltic(self.stage3_hp_filter_coeff[0], 
-                                                  self.stage3_hp_filter_coeff[1], 
-                                                  stage3_hp_filtered_data[-2:][::-1],
-                                                  stage2_output[-2:][::-1])
-        stage3_tp_filtered_data,_ = signal.lfilter(self.stage3_tp_filter_coeff[0], self.stage3_tp_filter_coeff[1], stage3_hp_filtered_data, zi=self.stage3_tp_filter_zi)
-        self.stage3_tp_filter_zi = signal.lfiltic(self.stage3_tp_filter_coeff[0], 
-                                                  self.stage3_tp_filter_coeff[1], 
-                                                  stage3_tp_filtered_data[-7:][::-1],
-                                                  stage3_hp_filtered_data[-7:][::-1])
-        stage3_weight_filtered_data,_ = signal.lfilter(self.stage3_weight_filter_coeff[0], self.stage3_weight_filter_coeff[1], stage3_tp_filtered_data, zi=self.stage3_weight_filter_zi)
-        self.stage3_weight_filter_zi = signal.lfiltic(self.stage3_weight_filter_coeff[0], 
-                                                  self.stage3_weight_filter_coeff[1], 
-                                                  stage3_weight_filtered_data[-len(self.stage3_weight_filter_coeff[1])-1:][::-1],
-                                                  stage3_tp_filtered_data[-len(self.stage3_weight_filter_coeff[1])-1:][::-1])
+        stage3_hp_filtered_data, self.stage3_hp_filter_zi = signal.lfilter(self.stage3_hp_filter_coeff[0], self.stage3_hp_filter_coeff[1], stage2_output, zi=self.stage3_hp_filter_zi)
+        stage3_tp_filtered_data, self.stage3_tp_filter_zi = signal.lfilter(self.stage3_tp_filter_coeff[0], self.stage3_tp_filter_coeff[1], stage3_hp_filtered_data, zi=self.stage3_tp_filter_zi)
+        stage3_weight_filtered_data, self.stage3_weight_filter_zi = signal.lfilter(self.stage3_weight_filter_coeff[0], self.stage3_weight_filter_coeff[1], stage3_tp_filtered_data, zi=self.stage3_weight_filter_zi)
         stage3_output = np.power(stage3_weight_filtered_data, 2)
-        stage4_tp_filtered_data,_ = signal.lfilter(self.stage4_tp_filter_coeff[0], self.stage4_tp_filter_coeff[1], stage3_output, zi=self.stage4_tp_filter_zi)
-        self.stage4_tp_filter_zi = signal.lfiltic(self.stage4_tp_filter_coeff[0], 
-                                                  self.stage4_tp_filter_coeff[1], 
-                                                  stage4_tp_filtered_data[-2:][::-1],
-                                                  stage3_output[-2:][::-1])
+        stage4_tp_filtered_data, self.stage4_tp_filter_zi = signal.lfilter(self.stage4_tp_filter_coeff[0], self.stage4_tp_filter_coeff[1], stage3_output, zi=self.stage4_tp_filter_zi)
         # Append buffer since steady state
         self.processed_samples += len(raw_data)
         # Steady State after approx. 20 Seconds
