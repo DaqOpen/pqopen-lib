@@ -55,7 +55,7 @@ class ZeroCrossDetector:
         self.filter_delay_samples = np.angle(h)[0] / (2 * np.pi) * self.samplerate / self.f_cutoff - 1 # due to adding sample in front for continuity
         self.filtered_data = []
 
-    def process(self, data: np.ndarray)-> list:
+    def process(self, data: np.ndarray, abs_last_zc: int = None)-> list:
         """
         Processes a block of input data and detect zero-crossings.
 
@@ -116,6 +116,8 @@ class ZeroCrossDetector:
                 logger.warning("Detection Error: real_zc is NaN, ignoring")
             else:
                 if self._last_zc  and (real_zc <= self._last_zc):
+                    logger.warning("Detected ZC before last one, ignoring")
+                elif (abs_last_zc is not None) and (self._last_zc  and (real_zc <= abs_last_zc)):
                     logger.warning("Detected ZC before last one, ignoring")
                 else:    
                     zero_crossings.append(real_zc + self.filter_delay_samples)

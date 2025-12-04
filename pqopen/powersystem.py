@@ -659,7 +659,7 @@ class PowerSystem(object):
             List[int]: Detected zero-crossing indices.
         """
         zcd_data = self._zcd_channel.read_data_by_index(start_idx=start_acq_sidx, stop_idx=stop_acq_sidx)
-        zero_crossings = self._zero_cross_detector.process(zcd_data)
+        zero_crossings = self._zero_cross_detector.process(zcd_data, self._zero_crossings[-1] - start_acq_sidx)
         if not zero_crossings:
             if (self._zero_crossings[-1] + self._samplerate/self._zcd_minimum_frequency - self._zero_cross_detector.filter_delay_samples) < stop_acq_sidx:
                 zero_crossings.append(self._zero_crossings[-1] + self._samplerate/self._last_known_freq - start_acq_sidx)
@@ -675,9 +675,10 @@ class PowerSystem(object):
                         if self._last_known_freq < self._zcd_minimum_frequency:
                             self._last_known_freq = self.nominal_frequency
                 self._calculation_mode = "FALLBACK"
+        elif self._calculation_mode == "FALLBACK":
+            self._calculation_mode = "NORMAL"
         else:
             self._calculation_mode = "NORMAL"
-
         return zero_crossings
 
     def get_aggregated_data(self, start_acq_sidx: int, stop_acq_sidx: int) -> dict:

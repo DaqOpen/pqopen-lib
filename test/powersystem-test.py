@@ -143,6 +143,22 @@ class TestPowerSystemZcd(unittest.TestCase):
         u_rms, _ = self.power_system.output_channels["U1_1p_rms"].read_data_by_acq_sidx(0, values.size)
         self.assertIsNone(np.testing.assert_array_almost_equal(u_rms[-10:], expected_u_rms[-10:], 3))
 
+    def test_one_period_calc_temp_fallback(self):
+        t = np.linspace(0, 10, int(self.power_system._samplerate)*10, endpoint=False)
+        values = np.sqrt(2)*np.sin(2*np.pi*50*t)
+
+        values[int(self.power_system._samplerate*3):int(self.power_system._samplerate*7)] *= 0
+        
+        expected_u_rms = np.array(np.zeros(48)) + 1.0
+
+        calc_blocksize = 50
+        for i in range(values.size//calc_blocksize):
+            self.u_channel.put_data(values[i*calc_blocksize:(i+1)*calc_blocksize])
+            self.power_system.process()
+        # Check Voltage
+        u_rms, _ = self.power_system.output_channels["U1_1p_rms"].read_data_by_acq_sidx(values.size-self.power_system._samplerate, values.size)
+        self.assertIsNone(np.testing.assert_array_almost_equal(u_rms[-10:], expected_u_rms[-10:], 3))
+
 class TestPowerSystemCalculation(unittest.TestCase):
     def setUp(self):
         self.u_channel = AcqBuffer()
