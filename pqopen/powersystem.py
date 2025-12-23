@@ -698,6 +698,21 @@ class PowerSystem(object):
             output_values[ch_name] = ch_data
         return output_values
     
+    def get_channel_info(self) -> dict:
+        channel_info = {}
+        for phase in self._phases:
+            for calc_interval, interval_group in phase._calc_channels.items():
+                for derived_type, phys_group in interval_group.items():
+                    for phys_type, channel in phys_group.items():
+                        channel_info[channel.name] = {
+                            "unit": channel.unit,
+                            "phys_type": phys_type,
+                            "derived_type": derived_type,
+                            "calc_interval": calc_interval,
+                            "phase": phase.name
+                        }
+        return channel_info
+    
     def __del__(self):
         if self._features["energy_channels"]:
             w_pos_value = float(self._calc_channels["multi_period"]["energy"]["w_pos"].last_sample_value)

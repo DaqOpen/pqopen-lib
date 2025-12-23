@@ -57,11 +57,13 @@ import numpy as np
 from pqopen.helper import floor_timestamp, JsonDecimalLimiter
 from pqopen.eventdetector import Event
 from daqopen.channelbuffer import DataChannelBuffer, AcqBuffer
+from daqopen.daqinfo import DaqInfo
 from pathlib import Path
 from typing import List, Dict
 import logging
 import json
 import gzip
+import time
 import paho.mqtt.client as mqtt
 
 
@@ -91,7 +93,7 @@ class StorageEndpoint(object):
         """
         Writes aggregated data to the storage endpoint.
 
-        Args:
+        Parameters:
             data: The aggregated data to store.
             timestamp_us: The timestamp in microseconds for the aggregated data.
             interval_seconds: The aggregation interval in seconds.
@@ -99,6 +101,17 @@ class StorageEndpoint(object):
         pass
 
     def write_event(self, event: Event):
+        pass
+
+    def write_measurement_config(self, m_config: dict, daq_info: DaqInfo, channe_info: dict, **kwargs):
+        """
+        Writes measurement config to the storage endpoint.
+
+        Parameters:
+            m_config: The measurement config to store.
+            daq_info: The daq info to store.
+            channel_info: The channel's specific infos
+        """
         pass
 
 class StoragePlan(object):
@@ -189,6 +202,9 @@ class StoragePlan(object):
     def store_event(self, event: Event):
         if self._store_events_enabled:
             self.storage_endpoint.write_event(event, **self._additional_config)
+
+    def store_measurement_config(self, m_config: dict, daq_info: DaqInfo, channel_info: dict):
+        self.storage_endpoint.write_measurement_config(m_config, daq_info, channel_info, **self._additional_config)
 
 class StorageController(object):
     """Manages multiple storage plans and processes data for storage."""
@@ -304,7 +320,10 @@ class StorageController(object):
                                          available_channels: dict, 
                                          measurement_id: str, 
                                          device_id: str,
-                                         start_timestamp_us: int):
+                                         start_timestamp_us: int,
+                                         m_config: dict | None = None,
+                                         daq_info: DaqInfo | None = None,
+                                         channel_info: dict| None = None):
         """
         Setup endpoints and storage plans from config
 
@@ -319,7 +338,7 @@ class StorageController(object):
         Raises:
             NotImplementedError: If a not implemented endpoint will be configured
         """
-        self._configured_eps = {}
+        self._configured_eps: dict[str, StorageEndpoint] = {}
         for ep_type, ep_config in endpoints.items():
             if ep_type == "csv":
                 csv_storage_endpoint = CsvStorageEndpoint("csv", measurement_id, ep_config.get("data_dir", "/tmp/"))
@@ -375,8 +394,11 @@ class StorageController(object):
                     else:      
                         logger.warning(f"Channel {channel} not available for storing")
             self.add_storage_plan(storage_plan)
-
-            
+            # Initially store the measurement config if configured
+            if sp_config.get("store_config", False) and m_config and daq_info and channel_info:
+                storage_plan.store_measurement_config(m_config=m_config,
+                                                      daq_info=daq_info,
+                                                      channel_info=channel_info)
 
 class TestStorageEndpoint(StorageEndpoint):
     """A implementation of StorageEndpoint for testing purposes."""
@@ -497,6 +519,27 @@ class MqttStorageEndpoint(StorageEndpoint):
                             gzip.compress(json_item.encode('utf-8')), qos=2)
         else:
             self._client.publish(topic_prefix + f"/{self._device_id:s}/event/json",
+                            json_item.encode('utf-8'), qos=2)
+            
+    def write_measurement_config(self, m_config: dict, daq_info: DaqInfo, channel_info: dict, **kwargs):
+        """
+        Write measurement config
+        """
+        m_config_object = {
+            "type": "m_config",
+            "measurement_uuid": self.measurement_id,
+            "timestamp": time.time(),
+            "m_config": m_config,
+            "daq_info": daq_info.to_dict(),
+            "channel_info": channel_info
+        }
+        json_item = json.dumps(m_config_object)
+        topic_prefix = kwargs.get("mqtt_topic_prefix", self._topic_prefix)
+        if self._compression:
+            self._client.publish(topic_prefix + f"/{self._device_id:s}/m_config/gjson",
+                            gzip.compress(json_item.encode('utf-8')), qos=2)
+        else:
+            self._client.publish(topic_prefix + f"/{self._device_id:s}/m_config/json",
                             json_item.encode('utf-8'), qos=2)
             
 class HomeAssistantStorageEndpoint(StorageEndpoint):

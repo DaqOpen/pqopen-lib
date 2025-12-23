@@ -52,6 +52,12 @@ class TestPowerSystemChannelConfig(unittest.TestCase):
         # Assuming process is to be implemented, we just check its existence
         self.assertTrue(callable(self.power_system.process))
 
+    def test_get_channel_info(self):
+        self.power_system.add_phase(u_channel=self.mock_acq_buffer)
+        self.power_system._update_calc_channels()
+        channel_info = self.power_system.get_channel_info()
+        self.assertTrue(isinstance(channel_info, dict))
+
 class TestPowerPhaseChannelConfig(unittest.TestCase):
     def setUp(self):
         # Mock AcqBuffer
