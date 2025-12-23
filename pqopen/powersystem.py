@@ -676,6 +676,14 @@ class PowerSystem(object):
                             self._last_known_freq = self.nominal_frequency
                 self._calculation_mode = "FALLBACK"
         elif self._calculation_mode == "FALLBACK":
+            remaining_virtual_zc = []
+            last_rel_zc = self._zero_crossings[-1] - start_acq_sidx 
+            zc_gap = zero_crossings[0] - last_rel_zc
+            num_zc_to_fill = int(zc_gap / (self._samplerate/self._last_known_freq)) + 1
+            virtual_zc_interval = int(zc_gap / num_zc_to_fill)
+            remaining_virtual_zc = [last_rel_zc + i*virtual_zc_interval for i in range(1,num_zc_to_fill)]
+            logger.debug("Finishing Fallback: Added virtual zero crossing: idx=" + ",".join([f"{virtual_zc:.1f}" for virtual_zc in remaining_virtual_zc]))
+            zero_crossings = remaining_virtual_zc + zero_crossings
             self._calculation_mode = "NORMAL"
         else:
             self._calculation_mode = "NORMAL"
