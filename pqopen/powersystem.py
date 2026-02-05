@@ -526,9 +526,8 @@ class PowerSystem(object):
                 if phys_type == "hf_1khz_rms":
                     u_values_windowed = u_values[:self._harm_fft_resample_size]*self._hf_1khz_window
                     u_real_fft = np.fft.rfft(u_values_windowed)
-                    #u_real_fft = np.fft.rfft(u_values_windowed)
                     if phase._u_fft_corr_array is not None:
-                        corr_freq_idx = np.linspace(0, self._samplerate*0.5, u_real_fft.shape[0]).astype(np.int32)
+                        corr_freq_idx = np.linspace(0, phase._u_fft_corr_array.size, u_real_fft.shape[0], endpoint=False).astype(np.int32)
                         u_real_fft *= phase._u_fft_corr_array[corr_freq_idx]
                     u_Pxx = (np.abs(u_real_fft) ** 2) / np.sum(self._hf_1khz_window ** 2)
                     u_Pxx /= self._harm_fft_resample_size * 0.5
