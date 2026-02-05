@@ -24,6 +24,7 @@ from typing import List, Dict
 import logging
 from pathlib import Path
 import json
+from scipy.signal import get_window
 
 from daqopen.channelbuffer import AcqBuffer, DataChannelBuffer
 from pqopen.zcd import ZeroCrossDetector
@@ -91,7 +92,8 @@ class PowerSystem(object):
                           "energy_channels": {},
                           "one_period_fundamental": 0,
                           "rms_trapz_rule": False,
-                          "pmu_calculation": False}
+                          "pmu_calculation": False,
+                          "hf_1khz_band_calculation": False}
         self._prepare_calc_channels()
         self.output_channels: Dict[str, DataChannelBuffer] = {}
         self._last_processed_sidx = 0
@@ -246,6 +248,15 @@ class PowerSystem(object):
         self._pmu_last_processed_ts_us = 0
         self._pmu_time_increment_us = int(1_000_000 / self.nominal_frequency)
 
+    def enable_hf_1khz_band_calculation(self):
+        """
+        Enables the calculation of wide band analysis with 1 kHz bands (non standard)
+        """
+        num_bands = int(self._samplerate*0.5 / 1000) + 1
+        self._features["hf_1khz_band_calculation"] = num_bands
+        self._hf_1khz_window = get_window("hann", self._harm_fft_resample_size)
+        self._channel_update_needed = True
+
     def _resync_nper_abs_time(self, zc_idx: int):
         if not self._features["nper_abs_time_sync"]:
             return None
@@ -305,11 +316,11 @@ class PowerSystem(object):
             if self._features["harmonics"]:
                 for phase in self._phases:
                     if phase._u_channel.freq_response:
-                        phase._u_fft_corr_array = create_fft_corr_array(self._harm_fft_resample_size,
+                        phase._u_fft_corr_array = create_fft_corr_array(int((self._samplerate / self.nominal_frequency) * self.nper / 2),
                                                                         self._samplerate/2,
                                                                         phase._u_channel.freq_response)
                     if phase._i_channel is not None and phase._i_channel.freq_response:
-                        phase._i_fft_corr_array = create_fft_corr_array(self._harm_fft_resample_size,
+                        phase._i_fft_corr_array = create_fft_corr_array(int((self._samplerate / self.nominal_frequency) * self.nper / 2),
                                                                         self._samplerate/2,
                                                                         phase._i_channel.freq_response)
             
@@ -482,7 +493,8 @@ class PowerSystem(object):
                 data_fft_U = pq.resample_and_fft(u_values, self._harm_fft_resample_size)
                 if phase._u_fft_corr_array is not None:
                     resample_factor =  min(self._harm_fft_resample_size / u_values.size, 1)
-                    data_fft_U *= phase._u_fft_corr_array[np.linspace(0, self._harm_fft_resample_size*resample_factor, self._harm_fft_resample_size//2+1).astype(np.int32)]
+                    corr_freq_idx = np.linspace(0, self._samplerate*0.5*resample_factor*self.nper/self.nominal_frequency, self._harm_fft_resample_size//2+1).astype(np.int32)
+                    data_fft_U *= phase._u_fft_corr_array[corr_freq_idx]
                 u_h_mag, u_h_phi = pq.calc_harmonics(data_fft_U, self.nper, self._features["harmonics"])
                 u_ih_mag = pq.calc_interharmonics(data_fft_U, self.nper, self._features["harmonics"])
                 if phase._number == 1: # use phase 1 angle as reference
@@ -511,6 +523,17 @@ class PowerSystem(object):
                     output_channel.put_data_single(stop_sidx, u_rms)
                 if phys_type == "over":
                     output_channel.put_data_single(stop_sidx, u_rms)
+                if phys_type == "hf_1khz_rms":
+                    u_values_windowed = u_values[:self._harm_fft_resample_size]*self._hf_1khz_window
+                    u_real_fft = np.fft.rfft(u_values_windowed)
+                    #u_real_fft = np.fft.rfft(u_values_windowed)
+                    if phase._u_fft_corr_array is not None:
+                        corr_freq_idx = np.linspace(0, self._samplerate*0.5, u_real_fft.shape[0]).astype(np.int32)
+                        u_real_fft *= phase._u_fft_corr_array[corr_freq_idx]
+                    u_Pxx = (np.abs(u_real_fft) ** 2) / np.sum(self._hf_1khz_window ** 2)
+                    u_Pxx /= self._harm_fft_resample_size * 0.5
+                    u_hf_1khz = pq.calc_hf_1khz_band(u_Pxx, self._samplerate)
+                    output_channel.put_data_single(stop_sidx, u_hf_1khz)
                 
             if phase._i_channel:
                 i_values = phase._i_channel.read_data_by_index(start_sidx, stop_sidx)
@@ -809,6 +832,10 @@ class PowerPhase(object):
         if "pmu_calculation" in features and features["pmu_calculation"]:
             self._calc_channels["pmu"]["voltage"]["rms"] = DataChannelBuffer('U{:s}_pmu_rms'.format(self.name), agg_type='rms', unit="V")
             self._calc_channels["pmu"]["voltage"]["phi"] = DataChannelBuffer('U{:s}_pmu_phi'.format(self.name), agg_type='phi', unit="°")
+
+        if "hf_1khz_band_calculation" in features and features["hf_1khz_band_calculation"]:
+            num_bands = features["hf_1khz_band_calculation"]
+            self._calc_channels["multi_period"]["voltage"]["hf_1khz_rms"] = DataChannelBuffer('U{:s}_HF_1kHz_rms'.format(self.name), sample_dimension=num_bands, agg_type='rms', unit="V")
 
         # Create Current Channels
         if self._i_channel:

@@ -63,6 +63,19 @@ def calc_thd(harm_rms: np.ndarray, max_harmonic: int = 40, min_harmonic: int = 2
         thd = np.sqrt(np.sum(np.power(harm_rms[min_harmonic:max_harmonic+1]/fund_rms, 2)))*100
     return thd
 
+def calc_hf_1khz_band(fft_data: np.ndarray, samplerate: float):
+    fft_data_abs = np.abs(fft_data)
+    freq_resolution = 0.5*samplerate / fft_data_abs.shape[0]
+    freq_steps = np.arange(-500, (samplerate/2) + 1500 - (samplerate/2) % 1000, 1000)
+    freq_steps[0] = 0
+    freq_steps[-1] = samplerate/2
+    freq_band_idx = (freq_steps / freq_resolution).astype(int)
+    hf_1khz_band_rms = []
+    for band_idx in range(freq_band_idx.shape[0] - 1):
+        hf_1khz_band_rms.append(np.sqrt(np.sum(fft_data_abs[freq_band_idx[band_idx]:freq_band_idx[band_idx+1]])))
+    
+    return np.array(hf_1khz_band_rms)
+
 def resample_and_fft(data: np.ndarray, resample_size: int = None) -> np.ndarray:
     """
     Resample the input data to a specified size and compute its FFT.

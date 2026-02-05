@@ -8,16 +8,17 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 import pqopen.powerquality as pq
 from daqopen.channelbuffer import DataChannelBuffer
+from pqopen.helper import create_fft_corr_array
 
 class TestPowerPowerQualityHarmonic(unittest.TestCase):
     def setUp(self):
         ...
 
     def test_simple(self):
-        samplerate = 1000
+        samplerate = 5000
         f_fund = 50.0
         num_periods = 10
-        t = np.linspace(0, 0.2, samplerate, endpoint=False)
+        t = np.linspace(0, 0.2, int(samplerate*0.2), endpoint=False)
         values = np.sqrt(2)*np.sin(2*np.pi*f_fund*t) + 0.1*np.sqrt(2)*np.sin(2*np.pi*2*f_fund*t + 45*np.pi/2)
         expected_v_h_rms = [0, 1, 0.1, 0, 0, 0, 0, 0, 0, 0, 0]
 
@@ -29,10 +30,10 @@ class TestPowerPowerQualityHarmonic(unittest.TestCase):
         self.assertAlmostEqual(v_h_phi[2], -90+45*2, places=2)
 
     def test_advanced(self):
-        samplerate = 1000
+        samplerate = 5000
         f_fund = 53.0
         num_periods = 10
-        t = np.linspace(0, num_periods/f_fund, samplerate, endpoint=False)
+        t = np.linspace(0, num_periods/f_fund, int(samplerate*num_periods/f_fund), endpoint=False)
         values = (1.0*np.sqrt(2)*np.sin(2*np.pi*1.0*f_fund*t) + 
                   0.1*np.sqrt(2)*np.sin(2*np.pi*1.5*f_fund*t + 45*np.pi/2)+
                   0.1*np.sqrt(2)*np.sin(2*np.pi*2.0*f_fund*t + 45*np.pi/2))
@@ -52,6 +53,33 @@ class TestPowerPowerQualityHarmonic(unittest.TestCase):
         self.assertAlmostEqual(v_h_phi[1], -90, places=2)
         self.assertAlmostEqual(v_h_phi[2], -90+45*2, places=2)
         self.assertAlmostEqual(v_thd, expected_v_thd, places=1)
+
+    def test_freq_response_correction(self):
+        samplerate = 5000
+        nominal_frequency = 50
+        f_fund = 45
+        num_periods = 10
+        harm_fft_resample_size = 512
+        t = np.linspace(0, num_periods/f_fund, int(samplerate*num_periods/f_fund), endpoint=False)
+        values = (1.0*np.sqrt(2)*np.sin(2*np.pi*1.0*f_fund*t) + 
+                  0.1*np.sqrt(2)*np.sin(2*np.pi*1.5*f_fund*t + 45*np.pi/2)+
+                  0.1*np.sqrt(2)*np.sin(2*np.pi*2.0*f_fund*t + 45*np.pi/2)+
+                  0.1*np.sqrt(2)*np.sin(2*np.pi*5.0*f_fund*t + 45*np.pi/2))
+        freq_response = ((50, 1.0), (200, 1.0), (225, 0.5))
+        expected_v_h_rms = [0, 1, 0.1, 0, 0, 0.2, 0, 0, 0, 0, 0]
+
+        v_fft = pq.resample_and_fft(values, resample_size=harm_fft_resample_size)
+        resample_factor = v_fft.shape[0]*2 / values.shape[0]
+
+        v_fft_corr_array = create_fft_corr_array(int((samplerate / nominal_frequency) * num_periods / 2),
+                                                 samplerate*0.5,
+                                                 freq_response)
+
+        corr_array_to_apply = v_fft_corr_array[np.linspace(0, samplerate*0.5*resample_factor*num_periods/nominal_frequency, harm_fft_resample_size//2+1).astype(np.int32)]
+        v_fft *= corr_array_to_apply
+        v_h_rms, v_h_phi = pq.calc_harmonics(v_fft, 10, 10)
+
+        self.assertIsNone(np.testing.assert_allclose(v_h_rms, expected_v_h_rms, atol=0.01))
 
 
 class TestPowerPowerQualityFlicker(unittest.TestCase):

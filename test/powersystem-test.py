@@ -273,7 +273,7 @@ class TestPowerSystemCalculation(unittest.TestCase):
 
 class TestPowerSystemCalculationFreqResponse(unittest.TestCase):
     def setUp(self):
-        self.u_channel = AcqBuffer(freq_response=((50,1.0), (100,0.9)))
+        self.u_channel = AcqBuffer(freq_response=((50,1.0), (100,0.9), (1000, 0.9), (2000, 0.7)))
         self.i_channel = AcqBuffer()
 
         # Create PowerSystem instance
@@ -304,6 +304,24 @@ class TestPowerSystemCalculationFreqResponse(unittest.TestCase):
         self.assertIsNone(np.testing.assert_allclose(u_h_rms[:,3], expected_u_h3_rms, rtol=0.01))
         u_msv_rms, _ = self.power_system.output_channels["U1_msv_rms"].read_data_by_acq_sidx(0, u_values.size)
         self.assertIsNone(np.testing.assert_allclose(u_msv_rms, expected_u_msv_rms, rtol=0.01))
+
+    def test_hf_1khz_band_calc(self):
+        t = np.linspace(0, 1, int(self.power_system._samplerate), endpoint=False)
+        u_values = (np.sqrt(2)*np.sin(2*np.pi*50*t) + 
+                    0.2*np.sqrt(2)*np.sin(2*np.pi*1000*t) + 
+                    0.1*np.sqrt(2)*np.sin(2*np.pi*2000*t))
+        i_values = 2*np.sqrt(2)*np.sin(2*np.pi*50*t+60*np.pi/180) # cos_phi = 0.5
+
+        expected_u_hf_rms = np.array([1, 0.2, 0.1, 0, 0, 0])
+
+        self.power_system.enable_hf_1khz_band_calculation()
+        self.u_channel.put_data(u_values)
+        self.i_channel.put_data(i_values)
+        self.power_system.process()
+
+        # Check Voltage        
+        u_hf_rms, _ = self.power_system.output_channels["U1_HF_1kHz_rms"].read_data_by_acq_sidx(0, u_values.size)
+        self.assertIsNone(np.testing.assert_allclose(u_hf_rms[3,:], expected_u_hf_rms, atol=0.01))
 
 class TestPowerSystemCalculationThreePhase(unittest.TestCase):
     def setUp(self):
