@@ -358,15 +358,18 @@ class PowerSystem(object):
 
         zero_crossings = self._detect_zero_crossings(start_acq_sidx, stop_acq_sidx)
         for zc in zero_crossings:
-            self._zero_cross_counter += 1
             actual_zc = int(np.round(zc)) + start_acq_sidx
             actual_zc_frac = zc - int(np.round(zc)) 
             # Ignore Zero Crossing before actual stop Sample IDX
             if actual_zc >= stop_acq_sidx:
                 logger.warning("Warning: Detected Zerocross before actual sample count")
                 continue
+            if actual_zc == self._zero_crossings[-1]:
+                logger.warning("Warning: Duplicated Zerocross... ignoring")
+                continue
             self._zero_crossings.pop(0)
             self._zero_crossings.append(actual_zc)
+            self._zero_cross_counter += 1
             if self._zero_cross_counter <= 1:
                 continue
             # Add actual zero cross counter to debug channel if enabled
@@ -493,7 +496,8 @@ class PowerSystem(object):
                 data_fft_U = pq.resample_and_fft(u_values, self._harm_fft_resample_size)
                 if phase._u_fft_corr_array is not None:
                     resample_factor =  min(self._harm_fft_resample_size / u_values.size, 1)
-                    corr_freq_idx = np.linspace(0, self._samplerate*0.5*resample_factor*self.nper/self.nominal_frequency, self._harm_fft_resample_size//2+1).astype(np.int32)
+                    max_idx = self._samplerate*0.5*resample_factor*self.nper/self.nominal_frequency
+                    corr_freq_idx = np.linspace(0, max_idx, self._harm_fft_resample_size//2+1, endpoint=False).astype(np.int32)
                     data_fft_U *= phase._u_fft_corr_array[corr_freq_idx]
                 u_h_mag, u_h_phi = pq.calc_harmonics(data_fft_U, self.nper, self._features["harmonics"])
                 u_ih_mag = pq.calc_interharmonics(data_fft_U, self.nper, self._features["harmonics"])
@@ -685,6 +689,7 @@ class PowerSystem(object):
         if not zero_crossings:
             if (self._zero_crossings[-1] + self._samplerate/self._zcd_minimum_frequency - self._zero_cross_detector.filter_delay_samples) < stop_acq_sidx:
                 zero_crossings.append(self._zero_crossings[-1] + self._samplerate/self._last_known_freq - start_acq_sidx)
+                logger.debug(f"Added first virtual zero crossing: idx={zero_crossings[-1]:f}")
                 while (zero_crossings[-1] + self._samplerate/self._zcd_minimum_frequency - self._zero_cross_detector.filter_delay_samples) < (stop_acq_sidx - start_acq_sidx):
                     additional_zc = zero_crossings[-1] + self._samplerate/self._last_known_freq
                     if additional_zc < stop_acq_sidx - self._zero_cross_detector.filter_delay_samples:
