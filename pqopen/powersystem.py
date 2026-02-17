@@ -537,6 +537,8 @@ class PowerSystem(object):
                     u_Pxx /= self._harm_fft_resample_size * 0.5
                     u_hf_1khz = pq.calc_hf_1khz_band(u_Pxx, self._samplerate)
                     output_channel.put_data_single(stop_sidx, u_hf_1khz)
+                if phys_type == "lf_5Hz_rms":
+                    output_channel.put_data_single(stop_sidx, data_fft_U[:21])
                 
             if phase._i_channel:
                 i_values = phase._i_channel.read_data_by_index(start_sidx, stop_sidx)
@@ -814,6 +816,7 @@ class PowerPhase(object):
             self._calc_channels["multi_period"]["voltage"]["harm_rms"] = DataChannelBuffer('U{:s}_H_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="V")
             self._calc_channels["multi_period"]["voltage"]["iharm_rms"] = DataChannelBuffer('U{:s}_IH_rms'.format(self.name), sample_dimension=features["harmonics"]+1, agg_type='rms', unit="V")
             self._calc_channels["multi_period"]["voltage"]["thd"] = DataChannelBuffer('U{:s}_THD'.format(self.name), unit="%")
+            self._calc_channels["multi_period"]["voltage"]["lf_5hz_rms"] = DataChannelBuffer('U{:s}_LF_5Hz_rms'.format(self.name), sample_dimension=21, agg_type='rms', unit="V")
 
         if "fluctuation" in features and features["fluctuation"]:
             self._calc_channels["multi_period"]["voltage"]["pst"] = DataChannelBuffer('U{:s}_pst'.format(self.name), agg_type='max', unit="")
