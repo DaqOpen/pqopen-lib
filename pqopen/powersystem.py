@@ -538,7 +538,7 @@ class PowerSystem(object):
                     u_hf_1khz = pq.calc_hf_1khz_band(u_Pxx, self._samplerate)
                     output_channel.put_data_single(stop_sidx, u_hf_1khz)
                 if phys_type == "lf_5hz_rms":
-                    output_channel.put_data_single(stop_sidx, data_fft_U[:21])
+                    output_channel.put_data_single(stop_sidx, np.abs(data_fft_U[:21]))
                 
             if phase._i_channel:
                 i_values = phase._i_channel.read_data_by_index(start_sidx, stop_sidx)
